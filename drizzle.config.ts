@@ -1,13 +1,18 @@
 import "dotenv/config";
 import { defineConfig } from "drizzle-kit";
 
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error(
+    "DATABASE_URL is required for drizzle-kit migrations. Define it in .env or your environment.",
+  );
+}
+
 export default defineConfig({
   out: "./drizzle/migrations",
   schema: "./services/api/src/db/schema.ts",
   dialect: "postgresql",
   dbCredentials: {
-    url:
-      process.env.DATABASE_URL ??
-      "postgresql://postgres:postgres@localhost:5432/job_app_copilot",
+    url: databaseUrl,
   },
 });

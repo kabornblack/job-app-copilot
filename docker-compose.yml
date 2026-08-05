@@ -3,9 +3,9 @@ services:
     image: pgvector/pgvector:pg16
     container_name: job-app-copilot-postgres
     environment:
-      POSTGRES_DB: job_app_copilot
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_HOST_AUTH_METHOD: trust # local dev only — do not carry into Supabase/prod
     ports:
       - "5433:5432"
