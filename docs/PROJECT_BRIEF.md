@@ -219,6 +219,8 @@ regardless of how routine they seem.
 
 - Committing or pushing to any remote branch, including `main` — I commit, or I
   explicitly tell you to
+- Creating or switching to any per-phase feature branches; this repository uses only
+  `main` and `develop` branches, and work happens directly on `develop`
 - Installing a new dependency that wasn't already listed in this brief or a prior
   approved plan — list what you want to add and why, then wait
 - Running any migration against a non-local database
