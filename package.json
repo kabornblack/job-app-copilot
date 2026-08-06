@@ -1,0 +1,39 @@
+{
+  "name": "job-app-copilot",
+  "private": true,
+  "packageManager": "pnpm@11.4.0",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --parallel --filter ./apps/web --filter ./services/api dev",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "typecheck": "pnpm --filter ./apps/web typecheck && pnpm --filter ./services/api typecheck",
+    "test": "pnpm --filter ./apps/web test && pnpm --filter ./services/api test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.15.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@typescript-eslint/eslint-plugin": "^8.17.0",
+    "@typescript-eslint/parser": "^8.17.0",
+    "drizzle-kit": "^0.31.0",
+    "eslint": "^9.15.0",
+    "globals": "^15.9.0",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.36.2",
+    "dotenv": "^16.4.5",
+    "pg": "^8.10.0",
+    "pgvector": "^0.2.0",
+    "postgres": "^3.4.9"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp"
+    ]
+  }
+}
