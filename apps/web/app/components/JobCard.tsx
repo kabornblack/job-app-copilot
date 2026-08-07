@@ -1,0 +1,150 @@
+"use client";
+import { useState } from "react";
+import GeneratedTextPanel from "./GeneratedTextPanel";
+
+export type JobSummary = {
+  applicationId: string;
+  jobId: string;
+  title: string;
+  company: string;
+  location?: string | null;
+  remoteType?: string | null;
+  salaryMin?: number | null;
+  salaryMax?: number | null;
+  url: string;
+  score: number;
+  explanation: string;
+  status: string;
+  generatedCV?: string | null;
+  generatedCoverLetter?: string | null;
+};
+
+type JobCardProps = {
+  job: JobSummary;
+  onGenerate: (
+    applicationId: string,
+    docType: "cv" | "cover_letter",
+  ) => Promise<string | null>;
+  onStatusChange: (applicationId: string, status: string) => Promise<void>;
+};
+
+export default function JobCard({
+  job,
+  onGenerate,
+  onStatusChange,
+}: JobCardProps) {
+  const [loadingGenerate, setLoadingGenerate] = useState<
+    "cv" | "cover_letter" | null
+  >(null);
+  const [loadingStatus, setLoadingStatus] = useState(false);
+  const [generatedCV, setGeneratedCV] = useState<string | null>(
+    job.generatedCV ?? null,
+  );
+  const [generatedCoverLetter, setGeneratedCoverLetter] = useState<
+    string | null
+  >(job.generatedCoverLetter ?? null);
+  const [status, setStatus] = useState(job.status);
+
+  const handleGenerate = async (docType: "cv" | "cover_letter") => {
+    setLoadingGenerate(docType);
+    try {
+      const text = await onGenerate(job.applicationId, docType);
+      if (text) {
+        if (docType === "cv") {
+          setGeneratedCV(text);
+        } else {
+          setGeneratedCoverLetter(text);
+        }
+      }
+    } finally {
+      setLoadingGenerate(null);
+    }
+  };
+
+  const handleStatusUpdate = async (newStatus: string) => {
+    setLoadingStatus(true);
+    try {
+      await onStatusChange(job.applicationId, newStatus);
+      setStatus(newStatus);
+    } finally {
+      setLoadingStatus(false);
+    }
+  };
+
+  return (
+    <article
+      style={{
+        border: "1px solid #ddd",
+        borderRadius: 12,
+        padding: "1rem",
+        marginBottom: "1rem",
+        background: "white",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "1rem",
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <h3 style={{ margin: "0 0 0.25rem" }}>{job.title}</h3>
+          <p style={{ margin: 0, color: "#555" }}>
+            {job.company} · {job.location ?? "Location unknown"} ·{" "}
+            {job.remoteType ?? "Remote info unknown"}
+          </p>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <strong>Status:</strong> {status}
+          <br />
+          <strong>Score:</strong> {job.score.toFixed(1)}
+        </div>
+      </div>
+      <p style={{ margin: "0.75rem 0" }}>
+        <strong>Why match:</strong> {job.explanation}
+      </p>
+      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={() => handleGenerate("cv")}
+          disabled={loadingGenerate !== null}
+          style={{ padding: "0.75rem 1rem" }}
+        >
+          {loadingGenerate === "cv" ? "Generating CV…" : "Generate CV"}
+        </button>
+        <button
+          type="button"
+          onClick={() => handleGenerate("cover_letter")}
+          disabled={loadingGenerate !== null}
+          style={{ padding: "0.75rem 1rem" }}
+        >
+          {loadingGenerate === "cover_letter"
+            ? "Generating cover letter…"
+            : "Generate Cover Letter"}
+        </button>
+        <button
+          type="button"
+          onClick={() => handleStatusUpdate("reviewing")}
+          disabled={loadingStatus}
+          style={{ padding: "0.75rem 1rem" }}
+        >
+          Approve
+        </button>
+        <button
+          type="button"
+          onClick={() => handleStatusUpdate("rejected")}
+          disabled={loadingStatus}
+          style={{ padding: "0.75rem 1rem", background: "#ffecec" }}
+        >
+          Reject
+        </button>
+      </div>
+      <GeneratedTextPanel
+        generatedCV={generatedCV}
+        generatedCoverLetter={generatedCoverLetter}
+      />
+    </article>
+  );
+}

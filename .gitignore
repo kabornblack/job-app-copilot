@@ -5,3 +5,4 @@ coverage
 pnpm-lock.yaml
 .env
 .DS_Store
+job-app-notes.txt
