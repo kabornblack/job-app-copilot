@@ -115,7 +115,8 @@ export const generatedDocuments = pgTable("generated_documents", {
     .references(() => applications.id, { onDelete: "cascade" })
     .notNull(),
   docType: text("doc_type").notNull(),
-  filePath: text("file_path").notNull(),
+  content: text("content"),
+  filePath: text("file_path"),
   promptVersion: text("prompt_version").notNull(),
   generatedAt: timestamp("generated_at", { withTimezone: true })
     .notNull()
