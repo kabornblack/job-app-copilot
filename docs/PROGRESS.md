@@ -62,17 +62,40 @@ safe to build on — versus what's still pending.
   and .orderBy(desc(column)) with desc imported from drizzle-orm
 - Claude API calls use /v1/messages, NOT the deprecated /v1/complete endpoint
   - response text is at response.content[0].text
+- Embeddings use OpenAI `text-embedding-3-small` via OPENAI_API_KEY (not Claude);
+  OpenAI billing/credits must be available or /jobs/search returns 500 on embed
+- Adzuna can occasionally return `count: 0` for a query that worked earlier —
+  retry with a broader supported-market location (e.g. London) before debugging
+  the search pipeline
+- Re-search dedup: unchanged profile reuses the active `profiles` row; existing
+  `(jobId, profileId)` matches skip Claude re-scoring. Verified: identical
+  re-search → `claudeCalls: 0`, `matchesReused: 20`, `applicationsCreated: 0`
+- Claude scoring explanations can exceed short limits — Zod max is 2000 chars;
+  prompt asks for 2-4 short sentences
+- After rotating CLAUDE_API_KEY, fully restart the API process (tsx watch does
+  not reload .env)
 
 ---
 
 ## Phase 2 - Real matching + real documents - IN PROGRESS
 
-- [ ] pgvector embeddings generated for jobs and profile
-- [ ] Semantic similarity stored as its own column (matches.semantic_similarity),
+- [x] pgvector embeddings generated for jobs and profile
+      - OpenAI `text-embedding-3-small` (1536 dims, matches `jobs.embedding`)
+      - Job embedding persisted on insert/backfill in `POST /jobs/search`
+      - Profile embedding computed at search time (not persisted)
+      - Verified: job row with non-null embedding (`vector_dims` = 1536) and
+        match rows with non-null `semantic_similarity` (e.g. 0.6321) via curl + SQL
+- [x] Semantic similarity stored as its own column (matches.semantic_similarity),
       kept separate from the rule-based/Claude score - do not merge these
       into one number
-- [ ] Claude-based scoring replacing/augmenting rule-based-v1, with
+- [x] Claude-based scoring replacing/augmenting rule-based-v1, with
       structured explanation output
+      - Forced tool_use `score_job_match` → `{ score: 0-100 int, explanation }`
+      - Stored as `matches.score` with `model_version = claude-sonnet-4-6-v1`
+      - Rule-based kept in `score.ts`, returned as `ruleBasedScore` on search
+        response only (not persisted); `semantic_similarity` still separate
+      - Verified differentiation e.g. scores 18 / 42 / 85 with distinct
+        explanations; re-search skips Claude when matches already exist
 - [ ] Real docx generation for CV and cover letter (populate
       generated_documents.file_path, currently always null)
 - [ ] Real PDF generation (same)

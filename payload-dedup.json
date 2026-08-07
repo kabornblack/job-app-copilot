@@ -1,0 +1,9 @@
+﻿{
+  "profile": {
+    "skills": ["DedupProbeSkill"],
+    "targetRoles": ["Dedup Probe Role"],
+    "locations": ["Nowhereville"],
+    "remotePref": "any",
+    "resumeSummary": "Profile reuse probe only."
+  }
+}

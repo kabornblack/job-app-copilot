@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import { z } from "zod";
-import { and, desc, eq } from "drizzle-orm";
+import { and, cosineDistance, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "./db/client";
 import {
@@ -13,6 +13,16 @@ import {
 import { searchAdzuna, type AdzunaJob } from "./lib/adzuna";
 import { scoreProfileJob } from "./lib/score";
 import { generateClaudeText } from "./lib/claude";
+import {
+  CLAUDE_SCORE_MODEL_VERSION,
+  scoreJobMatchWithClaude,
+} from "./lib/claude-score";
+import {
+  buildJobEmbeddingText,
+  buildProfileEmbeddingText,
+  generateEmbedding,
+} from "./lib/embeddings";
+import { profileDataEquals } from "./lib/profile";
 
 const server = Fastify({ logger: true });
 
@@ -64,24 +74,57 @@ const statusSchema = z.object({
 
 server.post("/jobs/search", async (request, reply) => {
   const body = searchBodySchema.parse(request.body);
+  const incomingProfile = body.profile;
 
-  const [profile] = await db
-    .insert(profiles)
-    .values({
-      skills: body.profile.skills,
-      targetRoles: body.profile.targetRoles,
-      locations: body.profile.locations,
-      salaryMin: body.profile.salaryMin,
-      salaryMax: body.profile.salaryMax,
-      currency: body.profile.currency,
-      remotePref: body.profile.remotePref,
-      resumeSummary: body.profile.resumeSummary,
-    })
-    .returning();
+  const [activeProfile] = await db
+    .select()
+    .from(profiles)
+    .where(eq(profiles.isActive, true))
+    .orderBy(desc(profiles.createdAt))
+    .limit(1);
+
+  let profile = activeProfile;
+  let profileReused = false;
+
+  if (activeProfile && profileDataEquals(activeProfile, incomingProfile)) {
+    profileReused = true;
+  } else {
+    if (activeProfile) {
+      await db
+        .update(profiles)
+        .set({ isActive: false })
+        .where(eq(profiles.isActive, true));
+    }
+
+    const [insertedProfile] = await db
+      .insert(profiles)
+      .values({
+        version: activeProfile ? activeProfile.version + 1 : 1,
+        skills: incomingProfile.skills,
+        targetRoles: incomingProfile.targetRoles,
+        locations: incomingProfile.locations,
+        salaryMin: incomingProfile.salaryMin,
+        salaryMax: incomingProfile.salaryMax,
+        currency: incomingProfile.currency,
+        remotePref: incomingProfile.remotePref,
+        resumeSummary: incomingProfile.resumeSummary,
+        isActive: true,
+      })
+      .returning();
+
+    if (!insertedProfile) {
+      return reply.status(500).send({ error: "Failed to create profile" });
+    }
+    profile = insertedProfile;
+  }
 
   if (!profile) {
-    return reply.status(500).send({ error: "Failed to create profile" });
+    return reply.status(500).send({ error: "Failed to resolve profile" });
   }
+
+  const profileEmbedding = await generateEmbedding(
+    buildProfileEmbeddingText(profile),
+  );
 
   const adzunaResult = await searchAdzuna(profile);
   const adzunaJobs = adzunaResult.jobs;
@@ -89,10 +132,23 @@ server.post("/jobs/search", async (request, reply) => {
     jobId: string;
     score: number;
     explanation: string;
+    ruleBasedScore: number;
+    semanticSimilarity: number | null;
     status: string;
+    scored: boolean;
   }> = [];
 
+  const stats = {
+    jobsSeen: 0,
+    matchesCreated: 0,
+    matchesReused: 0,
+    applicationsCreated: 0,
+    claudeCalls: 0,
+  };
+
   for (const adzunaJob of adzunaJobs) {
+    stats.jobsSeen += 1;
+
     let job = (
       await db
         .select()
@@ -125,7 +181,20 @@ server.post("/jobs/search", async (request, reply) => {
       job = inserted;
     }
 
-    const { score, explanation } = scoreProfileJob(profile, job as AdzunaJob);
+    if (!job.embedding) {
+      const jobEmbedding = await generateEmbedding(
+        buildJobEmbeddingText({
+          title: job.title,
+          description: job.description,
+        }),
+      );
+      const [updatedJob] = await db
+        .update(jobs)
+        .set({ embedding: jobEmbedding })
+        .where(eq(jobs.id, job.id))
+        .returning();
+      job = updatedJob;
+    }
 
     let match = (
       await db
@@ -137,18 +206,63 @@ server.post("/jobs/search", async (request, reply) => {
         .limit(1)
     )[0];
 
-    if (!match) {
+    const ruleBased = scoreProfileJob(profile, job as AdzunaJob);
+    let scored = false;
+
+    if (match) {
+      stats.matchesReused += 1;
+    } else {
+      const [similarityRow] = await db
+        .select({
+          similarity: sql<number>`1 - (${cosineDistance(jobs.embedding, profileEmbedding)})`,
+        })
+        .from(jobs)
+        .where(eq(jobs.id, job.id))
+        .limit(1);
+
+      const semanticSimilarity =
+        similarityRow?.similarity === null ||
+        similarityRow?.similarity === undefined
+          ? null
+          : Number(similarityRow.similarity);
+
+      const claudeScore = await scoreJobMatchWithClaude(
+        {
+          title: job.title,
+          company: job.company,
+          location: job.location,
+          remoteType: job.remoteType,
+          description: job.description,
+          url: job.url,
+          postedAt: job.postedAt ? job.postedAt.toISOString() : null,
+        },
+        {
+          skills: profile.skills,
+          targetRoles: profile.targetRoles,
+          locations: profile.locations,
+          remotePref: profile.remotePref ?? "any",
+          resumeSummary: profile.resumeSummary ?? undefined,
+        },
+      );
+      stats.claudeCalls += 1;
+      scored = true;
+
       const [insertedMatch] = await db
         .insert(matches)
         .values({
           jobId: job.id,
           profileId: profile.id,
-          score: score.toFixed(1),
-          explanation,
-          modelVersion: "rule-based-v1",
+          score: claudeScore.score.toFixed(1),
+          explanation: claudeScore.explanation,
+          semanticSimilarity:
+            semanticSimilarity === null
+              ? null
+              : semanticSimilarity.toFixed(4),
+          modelVersion: CLAUDE_SCORE_MODEL_VERSION,
         })
         .returning();
       match = insertedMatch;
+      stats.matchesCreated += 1;
     }
 
     const existingApplication = (
@@ -170,18 +284,27 @@ server.post("/jobs/search", async (request, reply) => {
         matchId: match.id,
         status: "found",
       });
+      stats.applicationsCreated += 1;
     }
 
     results.push({
       jobId: job.id,
-      score,
-      explanation,
-      status: "found",
+      score: Number(match.score),
+      explanation: match.explanation,
+      ruleBasedScore: ruleBased.score,
+      semanticSimilarity:
+        match.semanticSimilarity === null
+          ? null
+          : Number(match.semanticSimilarity),
+      status: existingApplication?.status ?? "found",
+      scored,
     });
   }
 
   return {
     profileId: profile.id,
+    profileReused,
+    stats,
     results,
     adzunaDebug: {
       requestUrl: adzunaResult.redactedUrl,
