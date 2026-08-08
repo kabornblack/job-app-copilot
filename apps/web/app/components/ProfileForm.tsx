@@ -6,6 +6,26 @@ type ProfileFormProps = {
   onSearchComplete: () => void;
 };
 
+type SearchRunResponse = {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  stats?: {
+    jobsSeen?: number;
+    matchesCreated?: number;
+    matchesReused?: number;
+    applicationsCreated?: number;
+    claudeCalls?: number;
+    scoreJobsEnqueued?: number;
+    scoreJobsFinished?: number;
+  };
+  error?: string | null;
+};
+
+const sleep = (ms: number) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
 export default function ProfileForm({
   apiUrl,
   onSearchComplete,
@@ -18,6 +38,9 @@ export default function ProfileForm({
   const [remotePref, setRemotePref] = useState("any");
   const [resumeSummary, setResumeSummary] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  const [statusTone, setStatusTone] = useState<"info" | "error" | "success">(
+    "info",
+  );
   const [submitting, setSubmitting] = useState(false);
 
   const parseList = (value: string) =>
@@ -26,10 +49,41 @@ export default function ProfileForm({
       .map((item) => item.trim())
       .filter(Boolean);
 
+  const formatRunProgress = (run: SearchRunResponse) => {
+    const stats = run.stats ?? {};
+    const finished = stats.scoreJobsFinished ?? 0;
+    const enqueued = stats.scoreJobsEnqueued ?? 0;
+    if (run.status === "queued") {
+      return "Search queued…";
+    }
+    if (enqueued > 0) {
+      return `Searching… scoring ${finished}/${enqueued} jobs (seen ${stats.jobsSeen ?? 0})`;
+    }
+    return "Searching… fetching jobs";
+  };
+
+  const pollSearchRun = async (runId: string): Promise<SearchRunResponse> => {
+    for (;;) {
+      const response = await fetch(`${apiUrl}/search-runs/${runId}`);
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || "Failed to load search run status");
+      }
+      const run = (await response.json()) as SearchRunResponse;
+      if (run.status === "completed" || run.status === "failed") {
+        return run;
+      }
+      setStatusTone("info");
+      setStatus(formatRunProgress(run));
+      await sleep(1500);
+    }
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitting(true);
-    setStatus(null);
+    setStatusTone("info");
+    setStatus("Searching…");
 
     const profile = {
       skills: parseList(skills),
@@ -49,18 +103,31 @@ export default function ProfileForm({
         body: JSON.stringify({ profile }),
       });
 
-      if (!response.ok) {
+      if (response.status !== 202) {
         const error = await response.text();
+        setStatusTone("error");
         setStatus(`Search failed: ${error}`);
         return;
       }
 
-      const result = await response.json();
+      const started = await response.json();
+      setStatus("Search queued…");
+      const run = await pollSearchRun(started.runId);
+
+      if (run.status === "failed") {
+        setStatusTone("error");
+        setStatus(`Search failed: ${run.error ?? "Unknown error"}`);
+        return;
+      }
+
+      const stats = run.stats ?? {};
+      setStatusTone("success");
       setStatus(
-        `${result.results.length} jobs found and added to review queue.`,
+        `Search complete — ${stats.jobsSeen ?? 0} jobs seen, ${stats.matchesCreated ?? 0} new matches, ${stats.matchesReused ?? 0} reused. Review queue updated.`,
       );
       onSearchComplete();
     } catch (error) {
+      setStatusTone("error");
       setStatus(`Search failed: ${error}`);
     } finally {
       setSubmitting(false);
@@ -161,7 +228,21 @@ export default function ProfileForm({
           {submitting ? "Searching..." : "Search jobs"}
         </button>
       </form>
-      {status ? <p style={{ marginTop: "1rem" }}>{status}</p> : null}
+      {status ? (
+        <p
+          style={{
+            marginTop: "1rem",
+            color:
+              statusTone === "error"
+                ? "#a40"
+                : statusTone === "success"
+                  ? "#276749"
+                  : "#1a202c",
+          }}
+        >
+          {status}
+        </p>
+      ) : null}
     </section>
   );
 }

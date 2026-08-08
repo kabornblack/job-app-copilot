@@ -29,11 +29,5 @@
     "pg": "^8.10.0",
     "pgvector": "^0.2.0",
     "postgres": "^3.4.9"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "sharp"
-    ]
   }
 }

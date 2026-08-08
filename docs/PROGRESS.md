@@ -131,9 +131,18 @@ safe to build on — versus what's still pending.
         transitions applied → interviewing → offer produced 3 history rows;
         noop same-status PATCH did not insert; `applied_at` set once and kept
 
-## Phase 3 - Background processing + scheduling - NOT STARTED
+## Phase 3 - Background processing + scheduling - IN PROGRESS
 
-- [ ] Move scraping/matching/doc-gen onto BullMQ workers
+- [x] Move search/scoring onto BullMQ workers (doc-gen stays sync per ADR-0003)
+      - `bullmq` + `ioredis`; worker at `services/api/src/worker.ts`
+      - Jobs: `search-run` → fan-out `score-match` using `ingestJobsForProfile` /
+        `scoreMatchForJob` (same libs as former sync path)
+      - `POST /jobs/search` → `202 { runId }`; `GET /search-runs/:id` for poll
+      - `search_runs` table + enums applied (migration 0003); status
+        queued → running → completed/failed with stats counters
+      - UI: Search → “Searching...” → poll → refresh review queue
+      - Browser-verified: complete message “20 jobs seen…”, review queue cards
+        present (e.g. first title “Senior Lead Fullstack AI Engineer”)
 - [ ] Daily repeatable cron job for scraping
 - [ ] Idempotency + retry tests for worker jobs
 

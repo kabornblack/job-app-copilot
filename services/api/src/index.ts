@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import { createReadStream } from "fs";
 import { access } from "fs/promises";
 import { z } from "zod";
-import { and, cosineDistance, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "./db/client";
 import {
@@ -12,14 +12,9 @@ import {
   jobs,
   matches,
   profiles,
+  searchRuns,
 } from "./db/schema";
-import { searchAdzuna, type AdzunaJob } from "./lib/adzuna";
-import { scoreProfileJob } from "./lib/score";
 import { generateClaudeText } from "./lib/claude";
-import {
-  CLAUDE_SCORE_MODEL_VERSION,
-  scoreJobMatchWithClaude,
-} from "./lib/claude-score";
 import {
   absoluteDocumentPath,
   plainTextToTipTapJson,
@@ -28,12 +23,9 @@ import {
   type DocumentFormat,
   type TipTapDoc,
 } from "./lib/documents";
-import {
-  buildJobEmbeddingText,
-  buildProfileEmbeddingText,
-  generateEmbedding,
-} from "./lib/embeddings";
-import { profileDataEquals } from "./lib/profile";
+import { resolveActiveProfile } from "./lib/resolve-profile";
+import { emptySearchRunStats } from "./lib/search-runs";
+import { getPipelineQueue } from "./queue/queues";
 
 const server = Fastify({ logger: true });
 
@@ -92,242 +84,76 @@ const statusSchema = z.object({
 
 server.post("/jobs/search", async (request, reply) => {
   const body = searchBodySchema.parse(request.body);
-  const incomingProfile = body.profile;
 
-  const [activeProfile] = await db
-    .select()
-    .from(profiles)
-    .where(eq(profiles.isActive, true))
-    .orderBy(desc(profiles.createdAt))
-    .limit(1);
+  try {
+    const { profile, profileReused } = await resolveActiveProfile(
+      body.profile,
+    );
 
-  let profile = activeProfile;
-  let profileReused = false;
-
-  if (activeProfile && profileDataEquals(activeProfile, incomingProfile)) {
-    profileReused = true;
-  } else {
-    if (activeProfile) {
-      await db
-        .update(profiles)
-        .set({ isActive: false })
-        .where(eq(profiles.isActive, true));
-    }
-
-    const [insertedProfile] = await db
-      .insert(profiles)
+    const [run] = await db
+      .insert(searchRuns)
       .values({
-        version: activeProfile ? activeProfile.version + 1 : 1,
-        skills: incomingProfile.skills,
-        targetRoles: incomingProfile.targetRoles,
-        locations: incomingProfile.locations,
-        salaryMin: incomingProfile.salaryMin,
-        salaryMax: incomingProfile.salaryMax,
-        currency: incomingProfile.currency,
-        remotePref: incomingProfile.remotePref,
-        resumeSummary: incomingProfile.resumeSummary,
-        isActive: true,
+        profileId: profile.id,
+        trigger: "manual",
+        status: "queued",
+        stats: emptySearchRunStats(profileReused),
       })
       .returning();
 
-    if (!insertedProfile) {
-      return reply.status(500).send({ error: "Failed to create profile" });
-    }
-    profile = insertedProfile;
-  }
-
-  if (!profile) {
-    return reply.status(500).send({ error: "Failed to resolve profile" });
-  }
-
-  const profileEmbedding = await generateEmbedding(
-    buildProfileEmbeddingText(profile),
-  );
-
-  const adzunaResult = await searchAdzuna(profile);
-  const adzunaJobs = adzunaResult.jobs;
-  const results: Array<{
-    jobId: string;
-    score: number;
-    explanation: string;
-    ruleBasedScore: number;
-    semanticSimilarity: number | null;
-    status: string;
-    scored: boolean;
-  }> = [];
-
-  const stats = {
-    jobsSeen: 0,
-    matchesCreated: 0,
-    matchesReused: 0,
-    applicationsCreated: 0,
-    claudeCalls: 0,
-  };
-
-  for (const adzunaJob of adzunaJobs) {
-    stats.jobsSeen += 1;
-
-    let job = (
-      await db
-        .select()
-        .from(jobs)
-        .where(
-          and(
-            eq(jobs.source, adzunaJob.source),
-            eq(jobs.externalId, adzunaJob.externalId),
-          ),
-        )
-        .limit(1)
-    )[0];
-
-    if (!job) {
-      const [inserted] = await db
-        .insert(jobs)
-        .values({
-          ...adzunaJob,
-          postedAt: adzunaJob.postedAt ? new Date(adzunaJob.postedAt) : null,
-          salaryMin:
-            adzunaJob.salaryMin !== null && adzunaJob.salaryMin !== undefined
-              ? Math.round(adzunaJob.salaryMin)
-              : null,
-          salaryMax:
-            adzunaJob.salaryMax !== null && adzunaJob.salaryMax !== undefined
-              ? Math.round(adzunaJob.salaryMax)
-              : null,
-        })
-        .returning();
-      job = inserted;
+    if (!run) {
+      return reply.status(500).send({ error: "Failed to create search run" });
     }
 
-    if (!job.embedding) {
-      const jobEmbedding = await generateEmbedding(
-        buildJobEmbeddingText({
-          title: job.title,
-          description: job.description,
-        }),
-      );
-      const [updatedJob] = await db
-        .update(jobs)
-        .set({ embedding: jobEmbedding })
-        .where(eq(jobs.id, job.id))
-        .returning();
-      job = updatedJob;
-    }
+    await getPipelineQueue().add(
+      "search-run",
+      { runId: run.id, profileId: profile.id },
+      {
+        jobId: `search-run-${run.id}`,
+        attempts: 2,
+        backoff: { type: "exponential", delay: 2000 },
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+      },
+    );
 
-    let match = (
-      await db
-        .select()
-        .from(matches)
-        .where(
-          and(eq(matches.jobId, job.id), eq(matches.profileId, profile.id)),
-        )
-        .limit(1)
-    )[0];
-
-    const ruleBased = scoreProfileJob(profile, job as AdzunaJob);
-    let scored = false;
-
-    if (match) {
-      stats.matchesReused += 1;
-    } else {
-      const [similarityRow] = await db
-        .select({
-          similarity: sql<number>`1 - (${cosineDistance(jobs.embedding, profileEmbedding)})`,
-        })
-        .from(jobs)
-        .where(eq(jobs.id, job.id))
-        .limit(1);
-
-      const semanticSimilarity =
-        similarityRow?.similarity === null ||
-        similarityRow?.similarity === undefined
-          ? null
-          : Number(similarityRow.similarity);
-
-      const claudeScore = await scoreJobMatchWithClaude(
-        {
-          title: job.title,
-          company: job.company,
-          location: job.location,
-          remoteType: job.remoteType,
-          description: job.description,
-          url: job.url,
-          postedAt: job.postedAt ? job.postedAt.toISOString() : null,
-        },
-        {
-          skills: profile.skills,
-          targetRoles: profile.targetRoles,
-          locations: profile.locations,
-          remotePref: profile.remotePref ?? "any",
-          resumeSummary: profile.resumeSummary ?? undefined,
-        },
-      );
-      stats.claudeCalls += 1;
-      scored = true;
-
-      const [insertedMatch] = await db
-        .insert(matches)
-        .values({
-          jobId: job.id,
-          profileId: profile.id,
-          score: claudeScore.score.toFixed(1),
-          explanation: claudeScore.explanation,
-          semanticSimilarity:
-            semanticSimilarity === null
-              ? null
-              : semanticSimilarity.toFixed(4),
-          modelVersion: CLAUDE_SCORE_MODEL_VERSION,
-        })
-        .returning();
-      match = insertedMatch;
-      stats.matchesCreated += 1;
-    }
-
-    const existingApplication = (
-      await db
-        .select()
-        .from(applications)
-        .where(
-          and(
-            eq(applications.jobId, job.id),
-            eq(applications.matchId, match.id),
-          ),
-        )
-        .limit(1)
-    )[0];
-
-    if (!existingApplication) {
-      await db.insert(applications).values({
-        jobId: job.id,
-        matchId: match.id,
-        status: "found",
-      });
-      stats.applicationsCreated += 1;
-    }
-
-    results.push({
-      jobId: job.id,
-      score: Number(match.score),
-      explanation: match.explanation,
-      ruleBasedScore: ruleBased.score,
-      semanticSimilarity:
-        match.semanticSimilarity === null
-          ? null
-          : Number(match.semanticSimilarity),
-      status: existingApplication?.status ?? "found",
-      scored,
+    return reply.status(202).send({
+      runId: run.id,
+      profileId: profile.id,
+      profileReused,
+      status: run.status,
     });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to start job search";
+    if (message === "Failed to create profile") {
+      return reply.status(500).send({ error: message });
+    }
+    throw error;
+  }
+});
+
+server.get("/search-runs/:id", async (request, reply) => {
+  const params = z.object({ id: z.string().uuid() }).parse(request.params);
+  const [run] = await db
+    .select()
+    .from(searchRuns)
+    .where(eq(searchRuns.id, params.id))
+    .limit(1);
+
+  if (!run) {
+    return reply.status(404).send({ error: "Search run not found" });
   }
 
   return {
-    profileId: profile.id,
-    profileReused,
-    stats,
-    results,
-    adzunaDebug: {
-      requestUrl: adzunaResult.redactedUrl,
-      rawResponse: adzunaResult.rawResponseText,
-    },
+    id: run.id,
+    profileId: run.profileId,
+    trigger: run.trigger,
+    status: run.status,
+    stats: run.stats,
+    error: run.error,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+    createdAt: run.createdAt,
   };
 });
 

@@ -22,6 +22,18 @@ export const applicationStatus = pgEnum("application_status", [
   "withdrawn",
 ]);
 
+export const searchRunStatus = pgEnum("search_run_status", [
+  "queued",
+  "running",
+  "completed",
+  "failed",
+]);
+
+export const searchRunTrigger = pgEnum("search_run_trigger", [
+  "manual",
+  "cron",
+]);
+
 export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey().defaultRandom(),
   version: integer("version").notNull().default(1),
@@ -121,6 +133,22 @@ export const generatedDocuments = pgTable("generated_documents", {
   filePath: text("file_path"),
   promptVersion: text("prompt_version").notNull(),
   generatedAt: timestamp("generated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const searchRuns = pgTable("search_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  profileId: uuid("profile_id")
+    .references(() => profiles.id)
+    .notNull(),
+  trigger: searchRunTrigger("trigger").notNull(),
+  status: searchRunStatus("status").notNull().default("queued"),
+  stats: jsonb("stats").notNull().default({}),
+  error: text("error"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
 });
