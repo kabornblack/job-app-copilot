@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ClaudeJobContext, ClaudeProfileContext } from "./claude";
+import { captureProviderError } from "./sentry";
 
 export const CLAUDE_SCORE_MODEL = "claude-sonnet-4-6";
 export const CLAUDE_SCORE_MODEL_VERSION = "claude-sonnet-4-6-v1";
@@ -105,9 +106,14 @@ Job:
   const responseText = await response.text();
   if (!response.ok) {
     console.error("Claude scoring raw response text:", responseText);
-    throw new Error(
+    const error = new Error(
       `Claude scoring failed: ${response.status} ${response.statusText} - ${responseText}`,
     );
+    captureProviderError("claude", error, {
+      status: response.status,
+      operation: "score",
+    });
+    throw error;
   }
 
   let payload: {
@@ -120,6 +126,10 @@ Job:
       "Claude scoring response text was not valid JSON:",
       responseText,
     );
+    captureProviderError("claude", error, {
+      operation: "score",
+      reason: "invalid_json",
+    });
     throw error;
   }
 
@@ -130,10 +140,20 @@ Job:
   if (!toolBlock) {
     const rawPayload = JSON.stringify(payload, null, 2);
     console.error("Claude scoring raw response payload:", rawPayload);
-    throw new Error(
+    const error = new Error(
       `Claude scoring response did not include ${scoreToolName} tool use. Raw payload: ${rawPayload}`,
     );
+    captureProviderError("claude", error, { operation: "score" });
+    throw error;
   }
 
-  return parseClaudeScoreToolInput(toolBlock.input);
+  try {
+    return parseClaudeScoreToolInput(toolBlock.input);
+  } catch (error) {
+    captureProviderError("claude", error, {
+      operation: "score",
+      reason: "invalid_tool_input",
+    });
+    throw error;
+  }
 }

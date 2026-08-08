@@ -1,3 +1,5 @@
+import { captureProviderError } from "./sentry";
+
 export const EMBEDDING_MODEL = "text-embedding-3-small";
 export const EMBEDDING_DIMENSIONS = 1536;
 
@@ -61,9 +63,14 @@ export async function generateEmbeddings(
   const responseText = await response.text();
   if (!response.ok) {
     console.error("OpenAI embeddings raw response text:", responseText);
-    throw new Error(
+    const error = new Error(
       `OpenAI embedding failed: ${response.status} ${response.statusText} - ${responseText}`,
     );
+    captureProviderError("openai", error, {
+      status: response.status,
+      bodyPreview: responseText.slice(0, 500),
+    });
+    throw error;
   }
 
   let payload: {
@@ -76,14 +83,17 @@ export async function generateEmbeddings(
       "OpenAI embeddings response text was not valid JSON:",
       responseText,
     );
+    captureProviderError("openai", error, { reason: "invalid_json" });
     throw error;
   }
 
   const rows = payload.data ?? [];
   if (rows.length !== texts.length) {
-    throw new Error(
+    const error = new Error(
       `OpenAI embedding count mismatch: expected ${texts.length}, got ${rows.length}`,
     );
+    captureProviderError("openai", error);
+    throw error;
   }
 
   const ordered = [...rows].sort(
@@ -93,9 +103,11 @@ export async function generateEmbeddings(
   return ordered.map((row, index) => {
     const embedding = row.embedding;
     if (!Array.isArray(embedding) || embedding.length !== EMBEDDING_DIMENSIONS) {
-      throw new Error(
+      const error = new Error(
         `OpenAI embedding at index ${index} has invalid dimensions: ${embedding?.length ?? 0}`,
       );
+      captureProviderError("openai", error, { index });
+      throw error;
     }
     return embedding;
   });
