@@ -1,9 +1,12 @@
 import Fastify from "fastify";
+import { createReadStream } from "fs";
+import { access } from "fs/promises";
 import { z } from "zod";
 import { and, cosineDistance, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "./db/client";
 import {
+  applicationStatusHistory,
   applications,
   generatedDocuments,
   jobs,
@@ -17,6 +20,14 @@ import {
   CLAUDE_SCORE_MODEL_VERSION,
   scoreJobMatchWithClaude,
 } from "./lib/claude-score";
+import {
+  absoluteDocumentPath,
+  plainTextToTipTapJson,
+  tipTapJsonToPlainText,
+  writeGeneratedDocumentsFromJson,
+  type DocumentFormat,
+  type TipTapDoc,
+} from "./lib/documents";
 import {
   buildJobEmbeddingText,
   buildProfileEmbeddingText,
@@ -57,6 +68,13 @@ const searchBodySchema = z.object({
 
 const generateBodySchema = z.object({
   type: z.enum(["cv", "cover_letter"]),
+});
+
+const saveDocumentBodySchema = z.object({
+  contentJson: z.object({
+    type: z.literal("doc"),
+    content: z.array(z.record(z.any())).optional(),
+  }),
 });
 
 const statusSchema = z.object({
@@ -366,6 +384,8 @@ const generateForApplication = async (
     type,
   );
 
+  const contentJson = plainTextToTipTapJson(content);
+
   const existingDocument = (
     await db
       .select()
@@ -386,6 +406,8 @@ const generateForApplication = async (
       .update(generatedDocuments)
       .set({
         content,
+        contentJson,
+        filePath: null,
         promptVersion: "phase1-v1",
         generatedAt: new Date(),
       })
@@ -399,6 +421,7 @@ const generateForApplication = async (
         applicationId: row.applicationId,
         docType: type,
         content,
+        contentJson,
         filePath: null,
         promptVersion: "phase1-v1",
       })
@@ -460,6 +483,117 @@ server.post("/jobs/:jobId/generate", async (request, reply) => {
   return generated;
 });
 
+server.patch(
+  "/applications/:applicationId/documents/:docType",
+  async (request, reply) => {
+    const params = z
+      .object({
+        applicationId: z.string().uuid(),
+        docType: z.enum(["cv", "cover_letter"]),
+      })
+      .parse(request.params);
+    const body = saveDocumentBodySchema.parse(request.body);
+    const contentJson = body.contentJson as TipTapDoc;
+    const content = tipTapJsonToPlainText(contentJson);
+
+    const [existing] = await db
+      .select()
+      .from(generatedDocuments)
+      .where(
+        and(
+          eq(generatedDocuments.applicationId, params.applicationId),
+          eq(generatedDocuments.docType, params.docType),
+        ),
+      )
+      .limit(1);
+
+    if (!existing) {
+      return reply.status(404).send({ error: "Document not found" });
+    }
+
+    const [updated] = await db
+      .update(generatedDocuments)
+      .set({
+        content,
+        contentJson,
+        filePath: null,
+        generatedAt: new Date(),
+      })
+      .where(eq(generatedDocuments.id, existing.id))
+      .returning();
+
+    return updated;
+  },
+);
+
+server.get(
+  "/applications/:applicationId/documents/:docType/download",
+  async (request, reply) => {
+    const params = z
+      .object({
+        applicationId: z.string().uuid(),
+        docType: z.enum(["cv", "cover_letter"]),
+      })
+      .parse(request.params);
+    const query = z
+      .object({ format: z.enum(["docx", "pdf"]).default("docx") })
+      .parse(request.query);
+
+    const [document] = await db
+      .select()
+      .from(generatedDocuments)
+      .where(
+        and(
+          eq(generatedDocuments.applicationId, params.applicationId),
+          eq(generatedDocuments.docType, params.docType),
+        ),
+      )
+      .limit(1);
+
+    if (!document?.contentJson) {
+      return reply
+        .status(404)
+        .send({ error: "Saved document content not found" });
+    }
+
+    const { stem } = await writeGeneratedDocumentsFromJson({
+      applicationId: params.applicationId,
+      docType: params.docType,
+      contentJson: document.contentJson as TipTapDoc,
+    });
+
+    await db
+      .update(generatedDocuments)
+      .set({ filePath: stem })
+      .where(eq(generatedDocuments.id, document.id));
+
+    const absolutePath = absoluteDocumentPath(
+      stem,
+      query.format as DocumentFormat,
+    );
+
+    try {
+      await access(absolutePath);
+    } catch {
+      return reply
+        .status(404)
+        .send({ error: "Document file missing on disk" });
+    }
+
+    const filename = `${params.docType}.${query.format}`;
+    reply.header(
+      "content-disposition",
+      `attachment; filename="${filename}"`,
+    );
+    reply.type(
+      query.format === "pdf"
+        ? "application/pdf"
+        : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+    return reply.send(createReadStream(absolutePath));
+  },
+);
+
 server.get("/applications/review-queue", async (_request, _reply) => {
   const cvDocuments = alias(generatedDocuments, "cv_documents");
   const coverLetterDocuments = alias(
@@ -483,6 +617,8 @@ server.get("/applications/review-queue", async (_request, _reply) => {
       explanation: matches.explanation,
       generatedCV: cvDocuments.content,
       generatedCoverLetter: coverLetterDocuments.content,
+      generatedCVJson: cvDocuments.contentJson,
+      generatedCoverLetterJson: coverLetterDocuments.contentJson,
     })
     .from(applications)
     .innerJoin(matches, eq(matches.id, applications.matchId))
@@ -517,14 +653,39 @@ server.patch("/applications/:applicationId/status", async (request, reply) => {
     .parse(request.params);
   const { status } = statusSchema.parse(request.body);
 
+  const [existing] = await db
+    .select()
+    .from(applications)
+    .where(eq(applications.id, params.applicationId))
+    .limit(1);
+
+  if (!existing) {
+    return reply.status(404).send({ error: "Application not found" });
+  }
+
+  const now = new Date();
   const [updated] = await db
     .update(applications)
-    .set({ status })
+    .set({
+      status,
+      updatedAt: now,
+      ...(status === "applied" && !existing.appliedAt
+        ? { appliedAt: now }
+        : {}),
+    })
     .where(eq(applications.id, params.applicationId))
     .returning();
 
   if (!updated) {
     return reply.status(404).send({ error: "Application not found" });
+  }
+
+  if (existing.status !== status) {
+    await db.insert(applicationStatusHistory).values({
+      applicationId: params.applicationId,
+      status,
+      changedAt: now,
+    });
   }
 
   return updated;

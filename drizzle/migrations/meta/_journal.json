@@ -15,6 +15,13 @@
       "when": 1786012751651,
       "tag": "0001_absurd_arclight",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786185000000,
+      "tag": "0002_content_json",
+      "breakpoints": true
     }
   ]
 }

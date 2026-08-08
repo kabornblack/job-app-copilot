@@ -1,16 +1,34 @@
 "use client";
-import { useEffect, useState } from "react";
-import JobCard, { type JobSummary } from "./JobCard";
+import { useEffect, useMemo, useState } from "react";
+import JobCard, {
+  type GeneratedDocumentResult,
+  type JobSummary,
+} from "./JobCard";
 
 type ReviewQueueProps = {
   apiUrl: string;
   refreshKey: number;
 };
 
+type QueueTab = "to_review" | "applied" | "archived";
+
+const TAB_STATUSES: Record<QueueTab, Set<string>> = {
+  to_review: new Set(["found", "reviewing", "tailored"]),
+  applied: new Set(["applied", "interviewing"]),
+  archived: new Set(["offer", "rejected", "withdrawn"]),
+};
+
+const TAB_LABELS: Record<QueueTab, string> = {
+  to_review: "To review",
+  applied: "Applied",
+  archived: "Archived",
+};
+
 export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<QueueTab>("to_review");
 
   useEffect(() => {
     setLoading(true);
@@ -45,7 +63,7 @@ export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
   const handleGenerate = async (
     applicationId: string,
     docType: "cv" | "cover_letter",
-  ) => {
+  ): Promise<GeneratedDocumentResult | null> => {
     const response = await fetch(
       `${apiUrl}/applications/${applicationId}/generate`,
       {
@@ -62,13 +80,17 @@ export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
 
     const generated = await response.json();
     const content = generated.content ?? null;
+    const contentJson = generated.contentJson ?? null;
     updateJob(
       applicationId,
       docType === "cv"
-        ? { generatedCV: content }
-        : { generatedCoverLetter: content },
+        ? { generatedCV: content, generatedCVJson: contentJson }
+        : {
+            generatedCoverLetter: content,
+            generatedCoverLetterJson: contentJson,
+          },
     );
-    return content;
+    return { content, contentJson };
   };
 
   const handleStatusChange = async (applicationId: string, status: string) => {
@@ -90,9 +112,59 @@ export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
     updateJob(applicationId, { status: updated.status });
   };
 
+  const counts = useMemo(() => {
+    const result: Record<QueueTab, number> = {
+      to_review: 0,
+      applied: 0,
+      archived: 0,
+    };
+    for (const job of jobs) {
+      if (TAB_STATUSES.to_review.has(job.status)) {
+        result.to_review += 1;
+      } else if (TAB_STATUSES.applied.has(job.status)) {
+        result.applied += 1;
+      } else if (TAB_STATUSES.archived.has(job.status)) {
+        result.archived += 1;
+      }
+    }
+    return result;
+  }, [jobs]);
+
+  const filteredJobs = jobs.filter((job) =>
+    TAB_STATUSES[activeTab].has(job.status),
+  );
+
   return (
     <section>
       <h2>Review queue</h2>
+      <div
+        style={{
+          display: "flex",
+          gap: "0.5rem",
+          flexWrap: "wrap",
+          marginBottom: "1rem",
+        }}
+      >
+        {(Object.keys(TAB_LABELS) as QueueTab[]).map((tab) => {
+          const selected = activeTab === tab;
+          return (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              style={{
+                padding: "0.55rem 0.9rem",
+                border: selected ? "1px solid #2d3748" : "1px solid #cbd5e0",
+                background: selected ? "#2d3748" : "#fff",
+                color: selected ? "#fff" : "#1a202c",
+                borderRadius: 6,
+              }}
+            >
+              {TAB_LABELS[tab]} ({counts[tab]})
+            </button>
+          );
+        })}
+      </div>
       {loading ? (
         <p>Loading review queue…</p>
       ) : error ? (
@@ -101,11 +173,14 @@ export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
         <p>
           No jobs in the review queue yet. Submit a profile to start a search.
         </p>
+      ) : filteredJobs.length === 0 ? (
+        <p>No jobs in “{TAB_LABELS[activeTab]}” right now.</p>
       ) : (
-        jobs.map((job) => (
+        filteredJobs.map((job) => (
           <JobCard
             key={job.applicationId}
             job={job}
+            apiUrl={apiUrl}
             onGenerate={handleGenerate}
             onStatusChange={handleStatusChange}
           />

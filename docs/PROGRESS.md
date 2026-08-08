@@ -74,6 +74,12 @@ safe to build on — versus what's still pending.
   prompt asks for 2-4 short sentences
 - After rotating CLAUDE_API_KEY, fully restart the API process (tsx watch does
   not reload .env)
+- Generated docs live under `services/api/storage/` (gitignored); `file_path`
+  is a relative stem, not a full absolute path
+- Document review flow: generate stores `content` + `content_json` and sets
+  `file_path` to null; Save persists TipTap JSON; Download writes docx/pdf from
+  saved `content_json` and only then sets `file_path`. PDFKit compresses text
+  (FlateDecode + hex TJ) — raw string search on .pdf bytes can false-negative
 
 ---
 
@@ -96,11 +102,34 @@ safe to build on — versus what's still pending.
         response only (not persisted); `semantic_similarity` still separate
       - Verified differentiation e.g. scores 18 / 42 / 85 with distinct
         explanations; re-search skips Claude when matches already exist
-- [ ] Real docx generation for CV and cover letter (populate
-      generated_documents.file_path, currently always null)
-- [ ] Real PDF generation (same)
-- [ ] Full status tracker UI reflecting the complete lifecycle (found ->
+- [x] Real docx generation for CV and cover letter (populate
+      generated_documents.file_path)
+      - `docx` package; files under `services/api/storage/generated/{applicationId}/`
+      - `file_path` stores stem e.g. `storage/generated/{id}/cv`
+      - Download: `GET /applications/:id/documents/:docType/download?format=docx|pdf`
+      - Frontend Download DOCX/PDF buttons in GeneratedTextPanel
+      - Verified non-empty files (e.g. cv.docx 9636 bytes, cv.pdf 3078 bytes),
+        readable text extracted from both formats, browser download opened
+- [x] Real PDF generation (same)
+      - `pdfkit`; sibling `.pdf` next to `.docx` from the same stem
+- [x] TipTap review-and-edit before download
+      - `content_json` jsonb on `generated_documents` (migration 0002)
+      - TipTap StarterKit constrained to h1/h2, paragraph, bold, italic, bullets
+      - Generate seeds TipTap JSON via adapted `parseDocumentBlocks`; no file write
+      - PATCH save; download builds docx/pdf from saved JSON
+      - Verified marker `EDITED_MARKER_xyz_7841` survived into downloaded DOCX
+        and PDF after edit+save (not the original Claude draft)
+- [x] Full status tracker UI reflecting the complete lifecycle (found ->
       reviewing -> tailored -> applied -> interviewing -> offer/rejected/withdrawn)
+      - `PATCH /applications/:id/status` inserts `application_status_history` on
+        real status changes; sets `applications.applied_at` on first `applied`
+      - JobCard: status badge; “Apply on {company}'s site” → real job URL;
+        pre-application Approve/Reject/Generate + “Mark as applied” when docs
+        exist; post-application muted card + lifecycle select only
+      - ReviewQueue client tabs: To review / Applied / Archived with counts
+      - Verified app `fa6ec9a2-041a-4288-93a1-292a0df2df68` (Ebury Adzuna URL):
+        transitions applied → interviewing → offer produced 3 history rows;
+        noop same-status PATCH did not insert; `applied_at` set once and kept
 
 ## Phase 3 - Background processing + scheduling - NOT STARTED
 
