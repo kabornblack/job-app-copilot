@@ -2,6 +2,7 @@ import { Worker } from "bullmq";
 import { eq } from "drizzle-orm";
 import { db } from "./db/client";
 import { profiles } from "./db/schema";
+import { enqueueCronSearchIfActiveProfile } from "./lib/daily-search";
 import { ingestJobsForProfile, scoreMatchForJob } from "./lib/job-search";
 import {
   markSearchRunFailed,
@@ -11,6 +12,7 @@ import {
   recordScoreMatchProgress,
 } from "./lib/search-runs";
 import { createRedisConnection } from "./queue/connection";
+import { registerDailySearchScheduler } from "./queue/daily-scheduler";
 import {
   PIPELINE_QUEUE_NAME,
   createPipelineQueue,
@@ -21,6 +23,8 @@ import {
 
 const connection = createRedisConnection();
 const queue = createPipelineQueue();
+
+await registerDailySearchScheduler(queue);
 
 const worker = new Worker(
   PIPELINE_QUEUE_NAME,
@@ -54,6 +58,21 @@ const worker = new Worker(
           requestedAt: data.requestedAt,
           completedAt: new Date().toISOString(),
         };
+        console.log(
+          JSON.stringify({
+            event: "job.completed",
+            queue: PIPELINE_QUEUE_NAME,
+            name: job.name,
+            id: job.id,
+            durationMs: Date.now() - startedAt,
+            result,
+          }),
+        );
+        return result;
+      }
+
+      if (job.name === "daily-search") {
+        const result = await enqueueCronSearchIfActiveProfile(queue);
         console.log(
           JSON.stringify({
             event: "job.completed",
