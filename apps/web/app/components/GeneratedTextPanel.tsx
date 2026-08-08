@@ -1,11 +1,59 @@
 "use client";
 
 type GeneratedTextPanelProps = {
+  applicationId: string;
+  apiUrl: string;
   generatedCV?: string | null;
   generatedCoverLetter?: string | null;
 };
 
+function downloadUrl(
+  apiUrl: string,
+  applicationId: string,
+  docType: "cv" | "cover_letter",
+  format: "docx" | "pdf",
+) {
+  return `${apiUrl}/applications/${applicationId}/documents/${docType}/download?format=${format}`;
+}
+
+function DocumentSection({
+  title,
+  text,
+  applicationId,
+  apiUrl,
+  docType,
+}: {
+  title: string;
+  text: string;
+  applicationId: string;
+  apiUrl: string;
+  docType: "cv" | "cover_letter";
+}) {
+  return (
+    <section style={{ marginBottom: "1rem" }}>
+      <h5>{title}</h5>
+      <div style={{ display: "flex", gap: "0.75rem", marginBottom: "0.5rem" }}>
+        <a
+          href={downloadUrl(apiUrl, applicationId, docType, "docx")}
+          style={{ padding: "0.4rem 0.75rem", border: "1px solid #ccc" }}
+        >
+          Download DOCX
+        </a>
+        <a
+          href={downloadUrl(apiUrl, applicationId, docType, "pdf")}
+          style={{ padding: "0.4rem 0.75rem", border: "1px solid #ccc" }}
+        >
+          Download PDF
+        </a>
+      </div>
+      <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{text}</pre>
+    </section>
+  );
+}
+
 export default function GeneratedTextPanel({
+  applicationId,
+  apiUrl,
   generatedCV,
   generatedCoverLetter,
 }: GeneratedTextPanelProps) {
@@ -41,18 +89,22 @@ export default function GeneratedTextPanel({
     >
       <h4 style={{ marginTop: 0 }}>Generated documents</h4>
       {generatedCV ? (
-        <section style={{ marginBottom: "1rem" }}>
-          <h5>CV</h5>
-          <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{generatedCV}</pre>
-        </section>
+        <DocumentSection
+          title="CV"
+          text={generatedCV}
+          applicationId={applicationId}
+          apiUrl={apiUrl}
+          docType="cv"
+        />
       ) : null}
       {generatedCoverLetter ? (
-        <section>
-          <h5>Cover Letter</h5>
-          <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>
-            {generatedCoverLetter}
-          </pre>
-        </section>
+        <DocumentSection
+          title="Cover Letter"
+          text={generatedCoverLetter}
+          applicationId={applicationId}
+          apiUrl={apiUrl}
+          docType="cover_letter"
+        />
       ) : null}
     </div>
   );

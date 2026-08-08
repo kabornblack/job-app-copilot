@@ -74,6 +74,8 @@ safe to build on — versus what's still pending.
   prompt asks for 2-4 short sentences
 - After rotating CLAUDE_API_KEY, fully restart the API process (tsx watch does
   not reload .env)
+- Generated docs live under `services/api/storage/` (gitignored); `file_path`
+  is a relative stem, not a full absolute path
 
 ---
 
@@ -96,9 +98,16 @@ safe to build on — versus what's still pending.
         response only (not persisted); `semantic_similarity` still separate
       - Verified differentiation e.g. scores 18 / 42 / 85 with distinct
         explanations; re-search skips Claude when matches already exist
-- [ ] Real docx generation for CV and cover letter (populate
-      generated_documents.file_path, currently always null)
-- [ ] Real PDF generation (same)
+- [x] Real docx generation for CV and cover letter (populate
+      generated_documents.file_path)
+      - `docx` package; files under `services/api/storage/generated/{applicationId}/`
+      - `file_path` stores stem e.g. `storage/generated/{id}/cv`
+      - Download: `GET /applications/:id/documents/:docType/download?format=docx|pdf`
+      - Frontend Download DOCX/PDF buttons in GeneratedTextPanel
+      - Verified non-empty files (e.g. cv.docx 9636 bytes, cv.pdf 3078 bytes),
+        readable text extracted from both formats, browser download opened
+- [x] Real PDF generation (same)
+      - `pdfkit`; sibling `.pdf` next to `.docx` from the same stem
 - [ ] Full status tracker UI reflecting the complete lifecycle (found ->
       reviewing -> tailored -> applied -> interviewing -> offer/rejected/withdrawn)
 

@@ -1,4 +1,6 @@
 import Fastify from "fastify";
+import { createReadStream } from "fs";
+import { access } from "fs/promises";
 import { z } from "zod";
 import { and, cosineDistance, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -17,6 +19,11 @@ import {
   CLAUDE_SCORE_MODEL_VERSION,
   scoreJobMatchWithClaude,
 } from "./lib/claude-score";
+import {
+  absoluteDocumentPath,
+  writeGeneratedDocuments,
+  type DocumentFormat,
+} from "./lib/documents";
 import {
   buildJobEmbeddingText,
   buildProfileEmbeddingText,
@@ -366,6 +373,12 @@ const generateForApplication = async (
     type,
   );
 
+  const { stem } = await writeGeneratedDocuments({
+    applicationId: row.applicationId,
+    docType: type,
+    content,
+  });
+
   const existingDocument = (
     await db
       .select()
@@ -386,6 +399,7 @@ const generateForApplication = async (
       .update(generatedDocuments)
       .set({
         content,
+        filePath: stem,
         promptVersion: "phase1-v1",
         generatedAt: new Date(),
       })
@@ -399,7 +413,7 @@ const generateForApplication = async (
         applicationId: row.applicationId,
         docType: type,
         content,
-        filePath: null,
+        filePath: stem,
         promptVersion: "phase1-v1",
       })
       .returning();
@@ -459,6 +473,61 @@ server.post("/jobs/:jobId/generate", async (request, reply) => {
 
   return generated;
 });
+
+server.get(
+  "/applications/:applicationId/documents/:docType/download",
+  async (request, reply) => {
+    const params = z
+      .object({
+        applicationId: z.string().uuid(),
+        docType: z.enum(["cv", "cover_letter"]),
+      })
+      .parse(request.params);
+    const query = z
+      .object({ format: z.enum(["docx", "pdf"]).default("docx") })
+      .parse(request.query);
+
+    const [document] = await db
+      .select()
+      .from(generatedDocuments)
+      .where(
+        and(
+          eq(generatedDocuments.applicationId, params.applicationId),
+          eq(generatedDocuments.docType, params.docType),
+        ),
+      )
+      .limit(1);
+
+    if (!document?.filePath) {
+      return reply.status(404).send({ error: "Document file not found" });
+    }
+
+    const absolutePath = absoluteDocumentPath(
+      document.filePath,
+      query.format as DocumentFormat,
+    );
+
+    try {
+      await access(absolutePath);
+    } catch {
+      return reply
+        .status(404)
+        .send({ error: "Document file missing on disk" });
+    }
+
+    const filename = `${params.docType}.${query.format}`;
+    reply.header(
+      "content-disposition",
+      `attachment; filename="${filename}"`,
+    );
+    reply.type(
+      query.format === "pdf"
+        ? "application/pdf"
+        : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+    return reply.send(createReadStream(absolutePath));
+  },
+);
 
 server.get("/applications/review-queue", async (_request, _reply) => {
   const cvDocuments = alias(generatedDocuments, "cv_documents");

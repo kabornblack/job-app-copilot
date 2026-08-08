@@ -21,6 +21,7 @@ export type JobSummary = {
 
 type JobCardProps = {
   job: JobSummary;
+  apiUrl: string;
   onGenerate: (
     applicationId: string,
     docType: "cv" | "cover_letter",
@@ -30,6 +31,7 @@ type JobCardProps = {
 
 export default function JobCard({
   job,
+  apiUrl,
   onGenerate,
   onStatusChange,
 }: JobCardProps) {
@@ -142,6 +144,8 @@ export default function JobCard({
         </button>
       </div>
       <GeneratedTextPanel
+        applicationId={job.applicationId}
+        apiUrl={apiUrl}
         generatedCV={generatedCV}
         generatedCoverLetter={generatedCoverLetter}
       />

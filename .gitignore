@@ -15,3 +15,6 @@ payload*.json
 *-debug.json
 *.debug.json
 test-output*
+
+# Generated CV/cover letter output files - not source
+services/api/storage/

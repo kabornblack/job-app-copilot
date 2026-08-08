@@ -106,6 +106,7 @@ export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
           <JobCard
             key={job.applicationId}
             job={job}
+            apiUrl={apiUrl}
             onGenerate={handleGenerate}
             onStatusChange={handleStatusChange}
           />
