@@ -6,6 +6,7 @@ import { and, cosineDistance, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "./db/client";
 import {
+  applicationStatusHistory,
   applications,
   generatedDocuments,
   jobs,
@@ -652,14 +653,39 @@ server.patch("/applications/:applicationId/status", async (request, reply) => {
     .parse(request.params);
   const { status } = statusSchema.parse(request.body);
 
+  const [existing] = await db
+    .select()
+    .from(applications)
+    .where(eq(applications.id, params.applicationId))
+    .limit(1);
+
+  if (!existing) {
+    return reply.status(404).send({ error: "Application not found" });
+  }
+
+  const now = new Date();
   const [updated] = await db
     .update(applications)
-    .set({ status })
+    .set({
+      status,
+      updatedAt: now,
+      ...(status === "applied" && !existing.appliedAt
+        ? { appliedAt: now }
+        : {}),
+    })
     .where(eq(applications.id, params.applicationId))
     .returning();
 
   if (!updated) {
     return reply.status(404).send({ error: "Application not found" });
+  }
+
+  if (existing.status !== status) {
+    await db.insert(applicationStatusHistory).values({
+      applicationId: params.applicationId,
+      status,
+      changedAt: now,
+    });
   }
 
   return updated;

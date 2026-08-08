@@ -18,3 +18,6 @@ test-output*
 
 # Generated CV/cover letter output files - not source
 services/api/storage/
+
+# Browser automation screenshots — never commit
+tmp-browser-proof/

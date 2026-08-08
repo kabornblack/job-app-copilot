@@ -27,6 +27,15 @@ export type GeneratedDocumentResult = {
   contentJson: TipTapDoc | null;
 };
 
+const PRE_APPLICATION_STATUSES = new Set(["found", "reviewing", "tailored"]);
+const POST_APPLICATION_STATUSES = [
+  "applied",
+  "interviewing",
+  "offer",
+  "rejected",
+  "withdrawn",
+] as const;
+
 type JobCardProps = {
   job: JobSummary;
   apiUrl: string;
@@ -36,6 +45,31 @@ type JobCardProps = {
   ) => Promise<GeneratedDocumentResult | null>;
   onStatusChange: (applicationId: string, status: string) => Promise<void>;
 };
+
+function statusBadgeStyle(status: string): {
+  display: "inline-block";
+  padding: string;
+  borderRadius: number;
+  fontSize: string;
+  fontWeight: number;
+  letterSpacing: string;
+  textTransform: "uppercase";
+  background: string;
+  color: string;
+} {
+  const postApplied = !PRE_APPLICATION_STATUSES.has(status);
+  return {
+    display: "inline-block",
+    padding: "0.2rem 0.55rem",
+    borderRadius: 4,
+    fontSize: "0.75rem",
+    fontWeight: 700,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    background: postApplied ? "#4a5568" : "#e2e8f0",
+    color: postApplied ? "#fff" : "#1a202c",
+  };
+}
 
 export default function JobCard({
   job,
@@ -60,6 +94,10 @@ export default function JobCard({
     useState<TipTapDoc | null>(job.generatedCoverLetterJson ?? null);
   const [status, setStatus] = useState(job.status);
 
+  const hasDocuments = Boolean(generatedCVJson || generatedCoverLetterJson);
+  const isPreApplication = PRE_APPLICATION_STATUSES.has(status);
+  const isPostApplication = !isPreApplication;
+
   const handleGenerate = async (docType: "cv" | "cover_letter") => {
     setLoadingGenerate(docType);
     try {
@@ -79,6 +117,9 @@ export default function JobCard({
   };
 
   const handleStatusUpdate = async (newStatus: string) => {
+    if (newStatus === status) {
+      return;
+    }
     setLoadingStatus(true);
     try {
       await onStatusChange(job.applicationId, newStatus);
@@ -91,11 +132,15 @@ export default function JobCard({
   return (
     <article
       style={{
-        border: "1px solid #ddd",
+        border: isPostApplication ? "1px solid #a0aec0" : "1px solid #ddd",
+        borderLeft: isPostApplication
+          ? "4px solid #4a5568"
+          : "1px solid #ddd",
         borderRadius: 12,
         padding: "1rem",
         marginBottom: "1rem",
-        background: "white",
+        background: isPostApplication ? "#edf2f7" : "white",
+        opacity: isPostApplication ? 0.92 : 1,
       }}
     >
       <div
@@ -114,55 +159,106 @@ export default function JobCard({
           </p>
         </div>
         <div style={{ textAlign: "right" }}>
-          <strong>Status:</strong> {status}
-          <br />
-          <strong>Score:</strong> {job.score.toFixed(1)}
+          <span style={statusBadgeStyle(status)}>{status}</span>
+          <div style={{ marginTop: "0.35rem" }}>
+            <strong>Score:</strong> {job.score.toFixed(1)}
+          </div>
         </div>
       </div>
       <p style={{ margin: "0.75rem 0" }}>
         <strong>Why match:</strong> {job.explanation}
       </p>
       <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-        <button
-          type="button"
-          onClick={() => handleGenerate("cv")}
-          disabled={loadingGenerate !== null}
-          style={{ padding: "0.75rem 1rem" }}
+        <a
+          href={job.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            padding: "0.75rem 1rem",
+            border: "1px solid #2b6cb0",
+            background: "#ebf8ff",
+            color: "#2b6cb0",
+            textDecoration: "none",
+            borderRadius: 4,
+          }}
         >
-          {loadingGenerate === "cv"
-            ? "Generating CV…"
-            : generatedCVJson
-              ? "Regenerate CV"
-              : "Generate CV"}
-        </button>
-        <button
-          type="button"
-          onClick={() => handleGenerate("cover_letter")}
-          disabled={loadingGenerate !== null}
-          style={{ padding: "0.75rem 1rem" }}
-        >
-          {loadingGenerate === "cover_letter"
-            ? "Generating cover letter…"
-            : generatedCoverLetterJson
-              ? "Regenerate Cover Letter"
-              : "Generate Cover Letter"}
-        </button>
-        <button
-          type="button"
-          onClick={() => handleStatusUpdate("reviewing")}
-          disabled={loadingStatus}
-          style={{ padding: "0.75rem 1rem" }}
-        >
-          Approve
-        </button>
-        <button
-          type="button"
-          onClick={() => handleStatusUpdate("rejected")}
-          disabled={loadingStatus}
-          style={{ padding: "0.75rem 1rem", background: "#ffecec" }}
-        >
-          Reject
-        </button>
+          Apply on {job.company}&apos;s site
+        </a>
+        {isPreApplication ? (
+          <>
+            <button
+              type="button"
+              onClick={() => handleGenerate("cv")}
+              disabled={loadingGenerate !== null}
+              style={{ padding: "0.75rem 1rem" }}
+            >
+              {loadingGenerate === "cv"
+                ? "Generating CV…"
+                : generatedCVJson
+                  ? "Regenerate CV"
+                  : "Generate CV"}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleGenerate("cover_letter")}
+              disabled={loadingGenerate !== null}
+              style={{ padding: "0.75rem 1rem" }}
+            >
+              {loadingGenerate === "cover_letter"
+                ? "Generating cover letter…"
+                : generatedCoverLetterJson
+                  ? "Regenerate Cover Letter"
+                  : "Generate Cover Letter"}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleStatusUpdate("reviewing")}
+              disabled={loadingStatus}
+              style={{ padding: "0.75rem 1rem" }}
+            >
+              Shortlist
+            </button>
+            <button
+              type="button"
+              onClick={() => handleStatusUpdate("rejected")}
+              disabled={loadingStatus}
+              style={{ padding: "0.75rem 1rem", background: "#ffecec" }}
+            >
+              Skip
+            </button>
+            {hasDocuments ? (
+              <button
+                type="button"
+                onClick={() => handleStatusUpdate("applied")}
+                disabled={loadingStatus}
+                style={{
+                  padding: "0.75rem 1rem",
+                  background: "#276749",
+                  color: "white",
+                  border: "none",
+                }}
+              >
+                Mark as applied
+              </button>
+            ) : null}
+          </>
+        ) : (
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span>Update status</span>
+            <select
+              value={status}
+              disabled={loadingStatus}
+              onChange={(event) => handleStatusUpdate(event.target.value)}
+              style={{ padding: "0.6rem 0.75rem" }}
+            >
+              {POST_APPLICATION_STATUSES.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
       <GeneratedTextPanel
         applicationId={job.applicationId}

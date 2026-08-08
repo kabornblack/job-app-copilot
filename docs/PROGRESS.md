@@ -119,8 +119,17 @@ safe to build on — versus what's still pending.
       - PATCH save; download builds docx/pdf from saved JSON
       - Verified marker `EDITED_MARKER_xyz_7841` survived into downloaded DOCX
         and PDF after edit+save (not the original Claude draft)
-- [ ] Full status tracker UI reflecting the complete lifecycle (found ->
+- [x] Full status tracker UI reflecting the complete lifecycle (found ->
       reviewing -> tailored -> applied -> interviewing -> offer/rejected/withdrawn)
+      - `PATCH /applications/:id/status` inserts `application_status_history` on
+        real status changes; sets `applications.applied_at` on first `applied`
+      - JobCard: status badge; “Apply on {company}'s site” → real job URL;
+        pre-application Approve/Reject/Generate + “Mark as applied” when docs
+        exist; post-application muted card + lifecycle select only
+      - ReviewQueue client tabs: To review / Applied / Archived with counts
+      - Verified app `fa6ec9a2-041a-4288-93a1-292a0df2df68` (Ebury Adzuna URL):
+        transitions applied → interviewing → offer produced 3 history rows;
+        noop same-status PATCH did not insert; `applied_at` set once and kept
 
 ## Phase 3 - Background processing + scheduling - NOT STARTED
 

@@ -2,7 +2,7 @@
 
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type TipTapDoc = {
   type: "doc";
@@ -17,6 +17,8 @@ type DocumentEditorProps = {
   initialJson: TipTapDoc | null;
   onSaved?: (payload: { content: string; contentJson: TipTapDoc }) => void;
 };
+
+type EditorMode = "write" | "preview";
 
 function downloadUrl(
   apiUrl: string,
@@ -38,6 +40,8 @@ export default function DocumentEditor({
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [mode, setMode] = useState<EditorMode>("write");
+  const ignoreUpdatesRef = useRef(false);
 
   const editor = useEditor({
     extensions: [
@@ -54,6 +58,9 @@ export default function DocumentEditor({
     content: initialJson ?? { type: "doc", content: [] },
     immediatelyRender: false,
     onUpdate: () => {
+      if (ignoreUpdatesRef.current) {
+        return;
+      }
       setDirty(true);
       setStatus(null);
     },
@@ -63,10 +70,25 @@ export default function DocumentEditor({
     if (!editor || !initialJson) {
       return;
     }
-    editor.commands.setContent(initialJson);
+    ignoreUpdatesRef.current = true;
+    editor.commands.setContent(initialJson, { emitUpdate: false });
     setDirty(false);
     setStatus(null);
+    queueMicrotask(() => {
+      ignoreUpdatesRef.current = false;
+    });
   }, [editor, initialJson]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+    ignoreUpdatesRef.current = true;
+    editor.setEditable(mode === "write");
+    queueMicrotask(() => {
+      ignoreUpdatesRef.current = false;
+    });
+  }, [editor, mode]);
 
   const handleSave = async () => {
     if (!editor) {
@@ -106,91 +128,215 @@ export default function DocumentEditor({
     return null;
   }
 
+  const tabButtonStyle = (active: boolean) => ({
+    padding: "0.4rem 0.85rem",
+    border: active ? "1px solid #2d3748" : "1px solid #cbd5e0",
+    borderBottom: active ? "1px solid #fff" : "1px solid #cbd5e0",
+    background: active ? "#fff" : "#edf2f7",
+    color: "#1a202c",
+    borderRadius: "6px 6px 0 0",
+    marginBottom: -1,
+    fontWeight: active ? 700 : 500,
+    cursor: "pointer" as const,
+  });
+
   return (
     <section style={{ marginBottom: "1.25rem" }}>
       <h5 style={{ marginBottom: "0.5rem" }}>{title}</h5>
       <div
         style={{
           display: "flex",
-          flexWrap: "wrap",
-          gap: "0.4rem",
-          marginBottom: "0.5rem",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() =>
-            editor.chain().focus().toggleHeading({ level: 1 }).run()
-          }
-          style={{
-            padding: "0.35rem 0.6rem",
-            fontWeight: editor.isActive("heading", { level: 1 }) ? 700 : 400,
-          }}
-        >
-          H1
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            editor.chain().focus().toggleHeading({ level: 2 }).run()
-          }
-          style={{
-            padding: "0.35rem 0.6rem",
-            fontWeight: editor.isActive("heading", { level: 2 }) ? 700 : 400,
-          }}
-        >
-          H2
-        </button>
-        <button
-          type="button"
-          onClick={() => editor.chain().focus().toggleBold().run()}
-          style={{
-            padding: "0.35rem 0.6rem",
-            fontWeight: editor.isActive("bold") ? 700 : 400,
-          }}
-        >
-          Bold
-        </button>
-        <button
-          type="button"
-          onClick={() => editor.chain().focus().toggleItalic().run()}
-          style={{
-            padding: "0.35rem 0.6rem",
-            fontStyle: editor.isActive("italic") ? "italic" : "normal",
-          }}
-        >
-          Italic
-        </button>
-        <button
-          type="button"
-          onClick={() => editor.chain().focus().toggleBulletList().run()}
-          style={{
-            padding: "0.35rem 0.6rem",
-            fontWeight: editor.isActive("bulletList") ? 700 : 400,
-          }}
-        >
-          Bullets
-        </button>
-      </div>
-      <div
-        style={{
-          border: "1px solid #ccc",
-          borderRadius: 6,
-          padding: "0.75rem",
-          minHeight: 180,
-          background: "white",
+          gap: "0.25rem",
+          borderBottom: "1px solid #cbd5e0",
           marginBottom: "0.75rem",
         }}
       >
-        <style>{`
-          .ProseMirror { outline: none; min-height: 140px; }
-          .ProseMirror h1 { font-size: 1.4rem; margin: 0.6rem 0 0.35rem; }
-          .ProseMirror h2 { font-size: 1.15rem; margin: 0.55rem 0 0.3rem; }
-          .ProseMirror p { margin: 0.35rem 0; }
-          .ProseMirror ul { padding-left: 1.25rem; margin: 0.35rem 0; }
-        `}</style>
-        <EditorContent editor={editor} />
+        <button
+          type="button"
+          onClick={() => setMode("write")}
+          style={tabButtonStyle(mode === "write")}
+        >
+          Write
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("preview")}
+          style={tabButtonStyle(mode === "preview")}
+        >
+          Preview
+        </button>
       </div>
+
+      {mode === "write" ? (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "0.4rem",
+            marginBottom: "0.5rem",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() =>
+              editor.chain().focus().toggleHeading({ level: 1 }).run()
+            }
+            style={{
+              padding: "0.35rem 0.6rem",
+              fontWeight: editor.isActive("heading", { level: 1 }) ? 700 : 400,
+            }}
+          >
+            H1
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              editor.chain().focus().toggleHeading({ level: 2 }).run()
+            }
+            style={{
+              padding: "0.35rem 0.6rem",
+              fontWeight: editor.isActive("heading", { level: 2 }) ? 700 : 400,
+            }}
+          >
+            H2
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().toggleBold().run()}
+            style={{
+              padding: "0.35rem 0.6rem",
+              fontWeight: editor.isActive("bold") ? 700 : 400,
+            }}
+          >
+            Bold
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().toggleItalic().run()}
+            style={{
+              padding: "0.35rem 0.6rem",
+              fontStyle: editor.isActive("italic") ? "italic" : "normal",
+            }}
+          >
+            Italic
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+            style={{
+              padding: "0.35rem 0.6rem",
+              fontWeight: editor.isActive("bulletList") ? 700 : 400,
+            }}
+          >
+            Bullets
+          </button>
+        </div>
+      ) : null}
+
+      <style>{`
+        .doc-editor-write .ProseMirror { outline: none; min-height: 140px; }
+        .doc-editor-write .ProseMirror h1 { font-size: 1.4rem; margin: 0.6rem 0 0.35rem; }
+        .doc-editor-write .ProseMirror h2 { font-size: 1.15rem; margin: 0.55rem 0 0.3rem; }
+        .doc-editor-write .ProseMirror p { margin: 0.35rem 0; }
+        .doc-editor-write .ProseMirror ul { padding-left: 1.25rem; margin: 0.35rem 0; }
+
+        .doc-editor-preview .ProseMirror { outline: none; cursor: default; min-height: 0; }
+        .doc-editor-preview .ProseMirror h1 {
+          font-family: Calibri, "Segoe UI", Helvetica, Arial, sans-serif;
+          font-size: 14px;
+          font-weight: 700;
+          color: #111111;
+          margin: 0.85rem 0 0.35rem;
+        }
+        .doc-editor-preview .ProseMirror h2 {
+          font-family: Calibri, "Segoe UI", Helvetica, Arial, sans-serif;
+          font-size: 12px;
+          font-weight: 700;
+          color: #111111;
+          margin: 0.75rem 0 0.3rem;
+        }
+        .doc-editor-preview .ProseMirror p {
+          font-family: Calibri, "Segoe UI", Helvetica, Arial, sans-serif;
+          font-size: 11px;
+          color: #222222;
+          margin: 0 0 0.55rem;
+          line-height: 1.45;
+        }
+        .doc-editor-preview .ProseMirror ul {
+          font-family: Calibri, "Segoe UI", Helvetica, Arial, sans-serif;
+          font-size: 11px;
+          color: #222222;
+          padding-left: 1.35rem;
+          margin: 0.2rem 0 0.55rem;
+        }
+        .doc-editor-preview .ProseMirror li {
+          margin: 0.15rem 0;
+          line-height: 1.4;
+        }
+        .doc-editor-preview .ProseMirror strong { font-weight: 700; }
+        .doc-editor-preview .ProseMirror em { font-style: italic; }
+      `}</style>
+
+      <div
+        style={
+          mode === "preview"
+            ? {
+                background: "#e8e8e8",
+                padding: "1.25rem 1rem",
+                marginBottom: "0.75rem",
+                borderRadius: 6,
+                border: "1px solid #c5c5c5",
+              }
+            : { marginBottom: "0.75rem" }
+        }
+      >
+        {/* documents.ts: DOCX Calibri + 0.5" margins; PDF Helvetica + ~54pt */}
+        <div
+          className={
+            mode === "write" ? "doc-editor-write" : "doc-editor-preview"
+          }
+          style={
+            mode === "write"
+              ? {
+                  border: "1px solid #ccc",
+                  borderRadius: 6,
+                  padding: "0.75rem",
+                  minHeight: 180,
+                  background: "white",
+                }
+              : {
+                  maxWidth: 680,
+                  margin: "0 auto",
+                  background: "#ffffff",
+                  boxShadow:
+                    "0 1px 4px rgba(0,0,0,0.18), 0 8px 24px rgba(0,0,0,0.08)",
+                  padding: "54px 54px",
+                  minHeight: 520,
+                  color: "#111111",
+                  fontFamily:
+                    'Calibri, "Segoe UI", Helvetica, Arial, sans-serif',
+                  fontSize: 11,
+                  lineHeight: 1.45,
+                }
+          }
+        >
+          <div
+            aria-hidden={mode !== "preview"}
+            style={{
+              display: mode === "preview" ? "block" : "none",
+              fontFamily: 'Calibri, "Segoe UI", Helvetica, Arial, sans-serif',
+              fontWeight: 700,
+              fontSize: 16,
+              color: "#111111",
+              marginBottom: "0.9rem",
+            }}
+          >
+            {title}
+          </div>
+          <EditorContent editor={editor} />
+        </div>
+      </div>
+
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
         <button
           type="button"
