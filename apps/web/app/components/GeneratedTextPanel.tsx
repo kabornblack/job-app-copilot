@@ -1,63 +1,30 @@
 "use client";
 
+import DocumentEditor, { type TipTapDoc } from "./DocumentEditor";
+
 type GeneratedTextPanelProps = {
   applicationId: string;
   apiUrl: string;
   generatedCV?: string | null;
   generatedCoverLetter?: string | null;
+  generatedCVJson?: TipTapDoc | null;
+  generatedCoverLetterJson?: TipTapDoc | null;
+  onDocumentSaved?: (
+    docType: "cv" | "cover_letter",
+    payload: { content: string; contentJson: TipTapDoc },
+  ) => void;
 };
-
-function downloadUrl(
-  apiUrl: string,
-  applicationId: string,
-  docType: "cv" | "cover_letter",
-  format: "docx" | "pdf",
-) {
-  return `${apiUrl}/applications/${applicationId}/documents/${docType}/download?format=${format}`;
-}
-
-function DocumentSection({
-  title,
-  text,
-  applicationId,
-  apiUrl,
-  docType,
-}: {
-  title: string;
-  text: string;
-  applicationId: string;
-  apiUrl: string;
-  docType: "cv" | "cover_letter";
-}) {
-  return (
-    <section style={{ marginBottom: "1rem" }}>
-      <h5>{title}</h5>
-      <div style={{ display: "flex", gap: "0.75rem", marginBottom: "0.5rem" }}>
-        <a
-          href={downloadUrl(apiUrl, applicationId, docType, "docx")}
-          style={{ padding: "0.4rem 0.75rem", border: "1px solid #ccc" }}
-        >
-          Download DOCX
-        </a>
-        <a
-          href={downloadUrl(apiUrl, applicationId, docType, "pdf")}
-          style={{ padding: "0.4rem 0.75rem", border: "1px solid #ccc" }}
-        >
-          Download PDF
-        </a>
-      </div>
-      <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{text}</pre>
-    </section>
-  );
-}
 
 export default function GeneratedTextPanel({
   applicationId,
   apiUrl,
   generatedCV,
   generatedCoverLetter,
+  generatedCVJson,
+  generatedCoverLetterJson,
+  onDocumentSaved,
 }: GeneratedTextPanelProps) {
-  if (!generatedCV && !generatedCoverLetter) {
+  if (!generatedCVJson && !generatedCoverLetterJson && !generatedCV && !generatedCoverLetter) {
     return (
       <div
         style={{
@@ -68,10 +35,10 @@ export default function GeneratedTextPanel({
           background: "#fafafa",
         }}
       >
-        <strong>No generated text yet.</strong>
+        <strong>No generated draft yet.</strong>
         <p style={{ margin: "0.5rem 0 0" }}>
-          Click Generate CV or Generate Cover Letter to create plain text
-          output.
+          Click Generate CV or Generate Cover Letter, edit in the rich text
+          editor, Save, then download DOCX/PDF.
         </p>
       </div>
     );
@@ -87,24 +54,38 @@ export default function GeneratedTextPanel({
         background: "#f4faff",
       }}
     >
-      <h4 style={{ marginTop: 0 }}>Generated documents</h4>
-      {generatedCV ? (
-        <DocumentSection
+      <h4 style={{ marginTop: 0 }}>Review & edit documents</h4>
+      {generatedCVJson ? (
+        <DocumentEditor
           title="CV"
-          text={generatedCV}
           applicationId={applicationId}
           apiUrl={apiUrl}
           docType="cv"
+          initialJson={generatedCVJson}
+          onSaved={(payload) => onDocumentSaved?.("cv", payload)}
         />
       ) : null}
-      {generatedCoverLetter ? (
-        <DocumentSection
+      {generatedCoverLetterJson ? (
+        <DocumentEditor
           title="Cover Letter"
-          text={generatedCoverLetter}
           applicationId={applicationId}
           apiUrl={apiUrl}
           docType="cover_letter"
+          initialJson={generatedCoverLetterJson}
+          onSaved={(payload) => onDocumentSaved?.("cover_letter", payload)}
         />
+      ) : null}
+      {!generatedCVJson && generatedCV ? (
+        <p style={{ color: "#a40" }}>
+          CV text exists but has no structured draft yet — regenerate to open
+          the editor.
+        </p>
+      ) : null}
+      {!generatedCoverLetterJson && generatedCoverLetter ? (
+        <p style={{ color: "#a40" }}>
+          Cover letter text exists but has no structured draft yet — regenerate
+          to open the editor.
+        </p>
       ) : null}
     </div>
   );

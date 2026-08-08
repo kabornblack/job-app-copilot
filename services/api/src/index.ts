@@ -21,8 +21,11 @@ import {
 } from "./lib/claude-score";
 import {
   absoluteDocumentPath,
-  writeGeneratedDocuments,
+  plainTextToTipTapJson,
+  tipTapJsonToPlainText,
+  writeGeneratedDocumentsFromJson,
   type DocumentFormat,
+  type TipTapDoc,
 } from "./lib/documents";
 import {
   buildJobEmbeddingText,
@@ -64,6 +67,13 @@ const searchBodySchema = z.object({
 
 const generateBodySchema = z.object({
   type: z.enum(["cv", "cover_letter"]),
+});
+
+const saveDocumentBodySchema = z.object({
+  contentJson: z.object({
+    type: z.literal("doc"),
+    content: z.array(z.record(z.any())).optional(),
+  }),
 });
 
 const statusSchema = z.object({
@@ -373,11 +383,7 @@ const generateForApplication = async (
     type,
   );
 
-  const { stem } = await writeGeneratedDocuments({
-    applicationId: row.applicationId,
-    docType: type,
-    content,
-  });
+  const contentJson = plainTextToTipTapJson(content);
 
   const existingDocument = (
     await db
@@ -399,7 +405,8 @@ const generateForApplication = async (
       .update(generatedDocuments)
       .set({
         content,
-        filePath: stem,
+        contentJson,
+        filePath: null,
         promptVersion: "phase1-v1",
         generatedAt: new Date(),
       })
@@ -413,7 +420,8 @@ const generateForApplication = async (
         applicationId: row.applicationId,
         docType: type,
         content,
-        filePath: stem,
+        contentJson,
+        filePath: null,
         promptVersion: "phase1-v1",
       })
       .returning();
@@ -474,6 +482,49 @@ server.post("/jobs/:jobId/generate", async (request, reply) => {
   return generated;
 });
 
+server.patch(
+  "/applications/:applicationId/documents/:docType",
+  async (request, reply) => {
+    const params = z
+      .object({
+        applicationId: z.string().uuid(),
+        docType: z.enum(["cv", "cover_letter"]),
+      })
+      .parse(request.params);
+    const body = saveDocumentBodySchema.parse(request.body);
+    const contentJson = body.contentJson as TipTapDoc;
+    const content = tipTapJsonToPlainText(contentJson);
+
+    const [existing] = await db
+      .select()
+      .from(generatedDocuments)
+      .where(
+        and(
+          eq(generatedDocuments.applicationId, params.applicationId),
+          eq(generatedDocuments.docType, params.docType),
+        ),
+      )
+      .limit(1);
+
+    if (!existing) {
+      return reply.status(404).send({ error: "Document not found" });
+    }
+
+    const [updated] = await db
+      .update(generatedDocuments)
+      .set({
+        content,
+        contentJson,
+        filePath: null,
+        generatedAt: new Date(),
+      })
+      .where(eq(generatedDocuments.id, existing.id))
+      .returning();
+
+    return updated;
+  },
+);
+
 server.get(
   "/applications/:applicationId/documents/:docType/download",
   async (request, reply) => {
@@ -498,12 +549,25 @@ server.get(
       )
       .limit(1);
 
-    if (!document?.filePath) {
-      return reply.status(404).send({ error: "Document file not found" });
+    if (!document?.contentJson) {
+      return reply
+        .status(404)
+        .send({ error: "Saved document content not found" });
     }
 
+    const { stem } = await writeGeneratedDocumentsFromJson({
+      applicationId: params.applicationId,
+      docType: params.docType,
+      contentJson: document.contentJson as TipTapDoc,
+    });
+
+    await db
+      .update(generatedDocuments)
+      .set({ filePath: stem })
+      .where(eq(generatedDocuments.id, document.id));
+
     const absolutePath = absoluteDocumentPath(
-      document.filePath,
+      stem,
       query.format as DocumentFormat,
     );
 
@@ -552,6 +616,8 @@ server.get("/applications/review-queue", async (_request, _reply) => {
       explanation: matches.explanation,
       generatedCV: cvDocuments.content,
       generatedCoverLetter: coverLetterDocuments.content,
+      generatedCVJson: cvDocuments.contentJson,
+      generatedCoverLetterJson: coverLetterDocuments.contentJson,
     })
     .from(applications)
     .innerJoin(matches, eq(matches.id, applications.matchId))

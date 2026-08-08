@@ -8,6 +8,7 @@ import {
   integer,
   numeric,
   vector,
+  jsonb,
 } from "drizzle-orm/pg-core";
 
 export const applicationStatus = pgEnum("application_status", [
@@ -116,6 +117,7 @@ export const generatedDocuments = pgTable("generated_documents", {
     .notNull(),
   docType: text("doc_type").notNull(),
   content: text("content"),
+  contentJson: jsonb("content_json"),
   filePath: text("file_path"),
   promptVersion: text("prompt_version").notNull(),
   generatedAt: timestamp("generated_at", { withTimezone: true })

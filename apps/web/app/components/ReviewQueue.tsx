@@ -1,6 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
-import JobCard, { type JobSummary } from "./JobCard";
+import JobCard, {
+  type GeneratedDocumentResult,
+  type JobSummary,
+} from "./JobCard";
 
 type ReviewQueueProps = {
   apiUrl: string;
@@ -45,7 +48,7 @@ export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
   const handleGenerate = async (
     applicationId: string,
     docType: "cv" | "cover_letter",
-  ) => {
+  ): Promise<GeneratedDocumentResult | null> => {
     const response = await fetch(
       `${apiUrl}/applications/${applicationId}/generate`,
       {
@@ -62,13 +65,17 @@ export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
 
     const generated = await response.json();
     const content = generated.content ?? null;
+    const contentJson = generated.contentJson ?? null;
     updateJob(
       applicationId,
       docType === "cv"
-        ? { generatedCV: content }
-        : { generatedCoverLetter: content },
+        ? { generatedCV: content, generatedCVJson: contentJson }
+        : {
+            generatedCoverLetter: content,
+            generatedCoverLetterJson: contentJson,
+          },
     );
-    return content;
+    return { content, contentJson };
   };
 
   const handleStatusChange = async (applicationId: string, status: string) => {

@@ -76,6 +76,10 @@ safe to build on — versus what's still pending.
   not reload .env)
 - Generated docs live under `services/api/storage/` (gitignored); `file_path`
   is a relative stem, not a full absolute path
+- Document review flow: generate stores `content` + `content_json` and sets
+  `file_path` to null; Save persists TipTap JSON; Download writes docx/pdf from
+  saved `content_json` and only then sets `file_path`. PDFKit compresses text
+  (FlateDecode + hex TJ) — raw string search on .pdf bytes can false-negative
 
 ---
 
@@ -108,6 +112,13 @@ safe to build on — versus what's still pending.
         readable text extracted from both formats, browser download opened
 - [x] Real PDF generation (same)
       - `pdfkit`; sibling `.pdf` next to `.docx` from the same stem
+- [x] TipTap review-and-edit before download
+      - `content_json` jsonb on `generated_documents` (migration 0002)
+      - TipTap StarterKit constrained to h1/h2, paragraph, bold, italic, bullets
+      - Generate seeds TipTap JSON via adapted `parseDocumentBlocks`; no file write
+      - PATCH save; download builds docx/pdf from saved JSON
+      - Verified marker `EDITED_MARKER_xyz_7841` survived into downloaded DOCX
+        and PDF after edit+save (not the original Claude draft)
 - [ ] Full status tracker UI reflecting the complete lifecycle (found ->
       reviewing -> tailored -> applied -> interviewing -> offer/rejected/withdrawn)
 
