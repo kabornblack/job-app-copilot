@@ -1,0 +1,79 @@
+# Operating rules for this repository
+
+Read this file in full before taking any action. These rules are not
+suggestions — they override any instinct to be "helpful" by doing more than
+what was asked. Full project context lives in docs/PROJECT_BRIEF.md, section 8
+in particular; this file adds stricter, tool-specific enforcement on top of it.
+
+## Scope discipline
+
+- Do ONLY what the current message explicitly asks. Do not fix, refactor,
+  clean up, or "improve" anything else you notice while working, even if it
+  looks broken. If you see an unrelated problem, STOP and report it in your
+  response — do not touch it.
+- Do not touch any file that wasn't named or clearly implied by the current
+  task. If a fix requires touching a file not mentioned, say so and wait for
+  confirmation before editing it.
+- If a task is ambiguous, ask a clarifying question. Do not guess and proceed.
+
+## Editing discipline
+
+- When editing an existing block of code (a function, a route handler, a
+  query), replace the ENTIRE block in one complete, self-contained edit — not
+  a sequence of small incremental patches to the same region. Multiple partial
+  patches to the same lines is exactly how this file got corrupted before;
+  it is banned.
+- Before applying any edit to a file with more than ~20 lines changed, show
+  the full proposed code and wait for explicit approval. Do not apply and
+  then explain — explain, then apply only after a yes.
+- After editing, re-read the actual file content to confirm the edit landed
+  correctly before claiming it's done. Do not assume a patch applied cleanly.
+- Never guess ORM/library method syntax (Drizzle, Fastify, etc.) from memory
+  if uncertain. Check the actual installed version's types/source in
+  node_modules, or ask, before writing a call you're not sure is correct.
+
+## Verification discipline — no claims without proof
+
+- Never say a fix "works," "is done," or "should be fine" without showing the
+  actual, raw output that proves it — a real terminal log, a real curl
+  response, a real test run result. A summary of what you believe happened is
+  not acceptable in place of the actual output.
+- After any server-affecting change, restart the server yourself and paste
+  the complete raw startup output, including any errors. If it errors, say so
+  plainly — do not describe an error as a success.
+- Test the specific thing that was fixed directly (e.g. curl the exact
+  endpoint) before suggesting the user check it in the browser.
+
+## Git discipline
+
+- NEVER commit. NEVER push. NEVER run `git add`, `git commit`, or
+  `git push` under any circumstance, even if asked to "finish up" or "wrap
+  this up" — committing is done by the human, always, after their own review.
+- Never run destructive git commands (`checkout --`, `reset --hard`, `clean`,
+  branch deletion) without explicit instruction to do exactly that.
+- Never switch git branches without being told to.
+
+## Process discipline
+
+- Never kill or restart processes silently as a side effect of something
+  else — state clearly when and why you're doing it.
+- Never install new dependencies that weren't already planned or discussed.
+- If a file appears corrupted, truncated, or structurally broken when you
+  read it, STOP. Report exactly what's broken and where. Do not attempt a
+  quick patch on top of corrupted code — propose a full clean rewrite of the
+  affected block and wait for approval first.
+
+## Progress tracking
+
+Always read docs/PROGRESS.md at the start of every session, before
+docs/PROJECT_BRIEF.md. Update it yourself when you complete and verify a
+task — check items off only after real, shown proof, never on assumption.
+
+## When in doubt
+
+Stop and ask. A clarifying question costs one message. A wrong guess applied
+directly to the file has cost this project multiple corrupted files and
+wasted sessions already. Slow and confirmed beats fast and broken.
+## Debug output
+
+When showing proof of a test (curl output, query results), paste it directly in your response. Do NOT redirect output to a file on disk unless explicitly asked to save a file. Scratch files left in the working directory get accidentally committed.
