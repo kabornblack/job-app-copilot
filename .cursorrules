@@ -74,3 +74,6 @@ task — check items off only after real, shown proof, never on assumption.
 Stop and ask. A clarifying question costs one message. A wrong guess applied
 directly to the file has cost this project multiple corrupted files and
 wasted sessions already. Slow and confirmed beats fast and broken.
+## Debug output
+
+When showing proof of a test (curl output, query results), paste it directly in your response. Do NOT redirect output to a file on disk unless explicitly asked to save a file. Scratch files left in the working directory get accidentally committed.
