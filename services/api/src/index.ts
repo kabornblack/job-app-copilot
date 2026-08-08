@@ -4,6 +4,7 @@ import { access } from "fs/promises";
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import { initSentry, captureException, flushSentry } from "./lib/sentry";
 import { db } from "./db/client";
 import {
   applicationStatusHistory,
@@ -25,9 +26,12 @@ import {
 } from "./lib/documents";
 import { resolveActiveProfile } from "./lib/resolve-profile";
 import { emptySearchRunStats } from "./lib/search-runs";
+import { registerBullBoard } from "./queue/bull-board";
 import { getPipelineQueue } from "./queue/queues";
 
-const server = Fastify({ logger: true });
+initSentry("api");
+
+const server = Fastify({ logger: true, trustProxy: false });
 
 server.addHook("onRequest", async (request, reply) => {
   reply.header("access-control-allow-origin", "*");
@@ -39,6 +43,42 @@ server.addHook("onRequest", async (request, reply) => {
 });
 
 server.get("/health", async () => ({ status: "ok" }));
+
+if ((process.env.SENTRY_ENVIRONMENT ?? "development") === "development") {
+  server.get("/debug/sentry-test", async () => {
+    throw new Error(
+      "Sentry proof: deliberate API error from /debug/sentry-test",
+    );
+  });
+}
+
+server.setErrorHandler(async (error, request, reply) => {
+  const statusCode =
+    typeof error.statusCode === "number" ? error.statusCode : 500;
+  const isClientError = statusCode >= 400 && statusCode < 500;
+
+  if (!isClientError) {
+    const eventId = captureException(error, {
+      tags: {
+        route: request.url,
+        method: request.method,
+      },
+      extra: {
+        statusCode,
+      },
+    });
+    await flushSentry();
+    request.log.error({ err: error, sentryEventId: eventId }, "request failed");
+  }
+
+  if (error instanceof z.ZodError) {
+    return reply.status(400).send({ error: error.flatten() });
+  }
+
+  return reply.status(statusCode).send({
+    error: isClientError ? error.message : "Internal Server Error",
+  });
+});
 
 const profileSchema = z.object({
   skills: z.array(z.string()).min(1),
@@ -519,6 +559,7 @@ server.patch("/applications/:applicationId/status", async (request, reply) => {
 
 const start = async () => {
   try {
+    await registerBullBoard(server);
     await server.listen({ port: 3001, host: "0.0.0.0" });
   } catch (err) {
     server.log.error(err);

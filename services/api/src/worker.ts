@@ -1,5 +1,6 @@
 import { Worker } from "bullmq";
 import { eq } from "drizzle-orm";
+import { initSentry, captureException, flushSentry } from "./lib/sentry";
 import { db } from "./db/client";
 import { profiles } from "./db/schema";
 import { enqueueCronSearchIfActiveProfile } from "./lib/daily-search";
@@ -20,6 +21,8 @@ import {
   type ScoreMatchJobData,
   type SearchRunJobData,
 } from "./queue/queues";
+
+initSentry("worker");
 
 const connection = createRedisConnection();
 const queue = createPipelineQueue();
@@ -250,6 +253,29 @@ const worker = new Worker(
 );
 
 worker.on("failed", (job, error) => {
+  const data = job?.data as Record<string, unknown> | undefined;
+  const sanitizedExtra = data
+    ? {
+        runId: data.runId,
+        profileId: data.profileId,
+        jobId: data.jobId,
+        applicationId: data.applicationId,
+        message: data.message,
+      }
+    : undefined;
+
+  const eventId = captureException(error, {
+    tags: {
+      jobName: job?.name ?? "unknown",
+      bullJobId: job?.id ?? "unknown",
+    },
+    extra: {
+      attempt: job?.attemptsMade,
+      ...sanitizedExtra,
+    },
+  });
+  void flushSentry();
+
   console.error(
     JSON.stringify({
       event: "worker.failed",
@@ -258,6 +284,7 @@ worker.on("failed", (job, error) => {
       id: job?.id,
       attempt: job?.attemptsMade,
       error: error.message,
+      sentryEventId: eventId,
     }),
   );
 });

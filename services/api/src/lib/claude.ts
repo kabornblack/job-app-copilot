@@ -1,3 +1,5 @@
+import { captureProviderError } from "./sentry";
+
 export interface ClaudeJobContext {
   title: string;
   company: string;
@@ -83,9 +85,14 @@ Please return a concise plain-text ${type} draft only.`;
   const responseText = await response.text();
   if (!response.ok) {
     console.error("Claude raw response text:", responseText);
-    throw new Error(
+    const error = new Error(
       `Claude generation failed: ${response.status} ${response.statusText} - ${responseText}`,
     );
+    captureProviderError("claude", error, {
+      status: response.status,
+      operation: "generate",
+    });
+    throw error;
   }
 
   let payload;
@@ -93,6 +100,10 @@ Please return a concise plain-text ${type} draft only.`;
     payload = JSON.parse(responseText);
   } catch (error) {
     console.error("Claude response text was not valid JSON:", responseText);
+    captureProviderError("claude", error, {
+      operation: "generate",
+      reason: "invalid_json",
+    });
     throw error;
   }
 
@@ -104,9 +115,11 @@ Please return a concise plain-text ${type} draft only.`;
   if (!text || typeof text !== "string") {
     const rawPayload = JSON.stringify(payload, null, 2);
     console.error("Claude raw response payload:", rawPayload);
-    throw new Error(
+    const error = new Error(
       `Claude API response did not include generated text. Raw payload: ${rawPayload}`,
     );
+    captureProviderError("claude", error, { operation: "generate" });
+    throw error;
   }
 
   return text.trim();

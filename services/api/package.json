@@ -13,6 +13,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@bull-board/api": "^8.6.0",
+    "@bull-board/fastify": "^8.6.0",
+    "@sentry/node": "^10.69.0",
     "bullmq": "^6.0.9",
     "docx": "^9.7.1",
     "fastify": "^5.0.0",

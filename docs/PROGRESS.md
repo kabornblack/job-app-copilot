@@ -155,11 +155,35 @@ safe to build on — versus what's still pending.
         match or application; simulated crash+retry leaves one row each
       - Full API suite: 14 tests passed
 
-## Phase 4 - Observability + hardening - NOT STARTED
+## Phase 4 - Observability + hardening - IN PROGRESS
 
-- [ ] Sentry on API and workers
-- [ ] Bull Board for queue visibility
-- [ ] AI pipeline test coverage (prompt regression, scoring consistency)
+- [x] Sentry on API and workers
+      - `@sentry/node`; shared `lib/sentry.ts`; `initSentry("api"|"worker")`
+      - Env: `SENTRY_DSN`, optional `SENTRY_ENVIRONMENT`
+      - Fastify `setErrorHandler` captures 5xx; BullMQ `failed` handler captures
+        with jobName/jobId + sanitized payload (no embeddings)
+      - Provider failures tagged `claude` / `adzuna` / `openai`
+      - Verified: GET `/debug/sentry-test` → event id
+        `d4447060da4a4cb08284d1041b863c71` (check Sentry Issues UI)
+- [x] Bull Board for queue visibility
+      - `@bull-board/api` + `@bull-board/fastify`; adapter
+        `@bull-board/api/bullMQAdapter`
+      - Mounted at `/admin/queues` only when `BULL_BOARD_USER` +
+        `BULL_BOARD_PASSWORD` are set; otherwise logged as disabled
+      - Loopback-only (`403` off-localhost) + HTTP basic auth (`401` without)
+      - Verified: unauthenticated → `401 Unauthorized`; with basic auth →
+        `200` HTML UI; `/admin/queues/api/queues` shows `pipeline` queue
+        (e.g. completed: 85, delayed: 1, `hasWorkers: true`,
+        `jobSchedulerCount: 1`)
+- [x] AI pipeline test coverage (prompt regression, scoring consistency)
+      - Claude score Zod: invalid/non-object/missing/empty explanation,
+        float score, string `"80"` rejected; missing `score_job_match`
+        tool_use throws (mocked fetch)
+      - Embeddings: OpenAI 500 throws; wrong/missing dims throw; happy-path
+        returns 1536 numbers (mocked fetch)
+      - TipTap seed: empty/whitespace → empty doc; no headings; bullets-only;
+        12k paragraph preserved; mixed `#`/`##`/bullets
+      - Verified: `pnpm --filter ./services/api test` → 8 files, 29 tests passed
 
 ## Phase 5 - Second source + polish - NOT STARTED
 

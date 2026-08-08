@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { captureProviderError } from "./sentry";
 
 export interface AdzunaProfile {
   skills: string[];
@@ -122,9 +123,11 @@ export async function searchAdzuna(
   console.log("Adzuna raw response:", responseText);
 
   if (!response.ok) {
-    throw new Error(
+    const error = new Error(
       `Adzuna search failed: ${response.status} ${response.statusText}`,
     );
+    captureProviderError("adzuna", error, { status: response.status });
+    throw error;
   }
 
   const payload =
