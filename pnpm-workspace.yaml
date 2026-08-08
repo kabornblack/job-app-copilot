@@ -3,4 +3,6 @@ packages:
   - services/*
 allowBuilds:
   esbuild: true
+  # Optional native accel for BullMQ/msgpackr; JS fallback is fine locally.
+  msgpackr-extract: false
   sharp: true

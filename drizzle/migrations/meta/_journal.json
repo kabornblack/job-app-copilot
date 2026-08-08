@@ -22,6 +22,13 @@
       "when": 1786185000000,
       "tag": "0002_content_json",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786190000000,
+      "tag": "0003_search_runs",
+      "breakpoints": true
     }
   ]
 }

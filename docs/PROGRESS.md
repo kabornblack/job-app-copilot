@@ -131,11 +131,29 @@ safe to build on — versus what's still pending.
         transitions applied → interviewing → offer produced 3 history rows;
         noop same-status PATCH did not insert; `applied_at` set once and kept
 
-## Phase 3 - Background processing + scheduling - NOT STARTED
+## Phase 3 - Background processing + scheduling - COMPLETE
 
-- [ ] Move scraping/matching/doc-gen onto BullMQ workers
-- [ ] Daily repeatable cron job for scraping
-- [ ] Idempotency + retry tests for worker jobs
+- [x] Move search/scoring onto BullMQ workers (doc-gen stays sync per ADR-0003)
+      - `bullmq` + `ioredis`; worker at `services/api/src/worker.ts`
+      - Jobs: `search-run` → fan-out `score-match` using `ingestJobsForProfile` /
+        `scoreMatchForJob` (same libs as former sync path)
+      - `POST /jobs/search` → `202 { runId }`; `GET /search-runs/:id` for poll
+      - `search_runs` table + enums applied (migration 0003); status
+        queued → running → completed/failed with stats counters
+      - UI: Search → “Searching...” → poll → refresh review queue
+      - Browser-verified: complete message “20 jobs seen…”, review queue cards
+        present (e.g. first title “Senior Lead Fullstack AI Engineer”)
+- [x] Daily repeatable cron job for scraping
+      - BullMQ `upsertJobScheduler('daily-search-run', 0 6 * * * Europe/Tallinn)`
+        at worker startup (idempotent; `getJobSchedulers` shows one entry)
+      - Tick calls `enqueueCronSearchIfActiveProfile` → `search_runs.trigger=cron`
+        or no-op if no active profile
+      - Verified: scheduler key `daily-search-run`; cron run
+        `a69bab92-9bcc-4466-b018-bbcdbbff2d8b` completed with 20/20 scores
+- [x] Idempotency + retry tests for worker jobs
+      - `job-search.idempotency.test.ts`: re-score skips Claude / no duplicate
+        match or application; simulated crash+retry leaves one row each
+      - Full API suite: 14 tests passed
 
 ## Phase 4 - Observability + hardening - NOT STARTED
 
