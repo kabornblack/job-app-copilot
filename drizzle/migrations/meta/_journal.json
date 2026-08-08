@@ -29,6 +29,13 @@
       "when": 1786190000000,
       "tag": "0003_search_runs",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786200000000,
+      "tag": "0004_job_source_listings",
+      "breakpoints": true
     }
   ]
 }

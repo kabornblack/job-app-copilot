@@ -185,7 +185,30 @@ safe to build on — versus what's still pending.
         12k paragraph preserved; mixed `#`/`##`/bullets
       - Verified: `pnpm --filter ./services/api test` → 8 files, 29 tests passed
 
-## Phase 5 - Second source + polish - NOT STARTED
+## Phase 5 - Second source + polish - IN PROGRESS
 
-- [ ] Jooble integration
-- [ ] Cross-source dedup logic
+- [x] Jooble integration
+      - `lib/jooble.ts` (parse + `searchJooble`), `JOOBLE_API_KEY`
+      - Int64 ids quoted before `JSON.parse` (JS Number precision)
+      - Live proof: United Kingdom query returned jobs (e.g. Insight /
+        Senior ITAM Pre-Sales Consultant); Tallinn/Estonia often
+        `totalCount: 0` on Jooble — use a broader location when proving
+- [x] Cross-source dedup logic
+      - Shared `computeJobFingerprint` (title+company+location, no
+        externalId); migration `0004` recomputed fingerprints via
+        pgcrypto `bytea` (Postgres text cannot hold NUL)
+      - `job_source_listings` junction + `unique(source, external_id)` on
+        jobs and listings; `jobs_fingerprint_idx`
+      - `upsertJobFromListing`: (source, external_id) → fingerprint →
+        insert; parallel Adzuna+Jooble ingest with partial-failure
+      - Verified collision: real Jooble listing + Adzuna twin same
+        title/company/location → one `jobs` row
+        (`b4c144a8-d077-4502-a405-d854ca9fc907`), two listings
+        (adzuna + jooble), `fingerprintMatched: true` on second upsert
+
+### Phase 5 gotchas
+
+- Jooble location "Tallinn" / "Estonia" can return zero hits; "United
+  Kingdom" / "Berlin" / empty return results
+- Fingerprint SQL recompute must use `convert_to(...) || '\000'::bytea`,
+  not `E'\0'` in text

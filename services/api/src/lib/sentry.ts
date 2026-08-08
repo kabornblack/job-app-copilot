@@ -74,7 +74,7 @@ export function captureException(
 }
 
 export function captureProviderError(
-  provider: "claude" | "adzuna" | "openai",
+  provider: "claude" | "adzuna" | "openai" | "jooble",
   error: unknown,
   extra?: Record<string, unknown>,
 ): void {

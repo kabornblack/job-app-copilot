@@ -1,6 +1,11 @@
 import { and, cosineDistance, eq, sql } from "drizzle-orm";
 import { db } from "../db/client";
-import { applications, jobs, matches } from "../db/schema";
+import {
+  applications,
+  jobSourceListings,
+  jobs,
+  matches,
+} from "../db/schema";
 import { searchAdzuna, type AdzunaJob } from "./adzuna";
 import {
   CLAUDE_SCORE_MODEL_VERSION,
@@ -11,6 +16,7 @@ import {
   buildProfileEmbeddingText,
   generateEmbedding,
 } from "./embeddings";
+import { searchJooble } from "./jooble";
 import type { ResolvedProfile } from "./resolve-profile";
 import { scoreProfileJob } from "./score";
 
@@ -32,15 +38,42 @@ export type JobSearchStats = {
   claudeCalls: number;
 };
 
+/** Normalized listing from any board before DB upsert. */
+export type IngestJobListing = {
+  source: string;
+  externalId: string;
+  fingerprint: string;
+  title: string;
+  company: string;
+  location: string | null;
+  remoteType: string | null;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  description: string | null;
+  url: string;
+  postedAt: string | null;
+};
+
+export type UpsertJobResult = {
+  jobId: string;
+  created: boolean;
+  fingerprintMatched: boolean;
+};
+
 export type IngestJobsResult = {
   jobIds: string[];
   jobsSeen: number;
   embeddingsCreated: number;
   profileEmbedding: number[];
+  sourceErrors: { source: string; message: string }[];
   adzunaDebug: {
     requestUrl: string;
     rawResponse: string;
-  };
+  } | null;
+  joobleDebug: {
+    requestUrl: string;
+    rawResponse: string;
+  } | null;
 };
 
 export type ScoreMatchResult = {
@@ -51,7 +84,106 @@ export type ScoreMatchResult = {
   result: JobSearchResultItem;
 };
 
-/** Adzuna fetch + upsert jobs + ensure embeddings. Shared by search-run worker. */
+function toJobValues(listing: IngestJobListing) {
+  return {
+    source: listing.source,
+    externalId: listing.externalId,
+    fingerprint: listing.fingerprint,
+    title: listing.title,
+    company: listing.company,
+    location: listing.location,
+    remoteType: listing.remoteType,
+    description: listing.description,
+    url: listing.url,
+    postedAt: listing.postedAt ? new Date(listing.postedAt) : null,
+    salaryMin:
+      listing.salaryMin !== null && listing.salaryMin !== undefined
+        ? Math.round(listing.salaryMin)
+        : null,
+    salaryMax:
+      listing.salaryMax !== null && listing.salaryMax !== undefined
+        ? Math.round(listing.salaryMax)
+        : null,
+  };
+}
+
+async function upsertJobSourceListing(listing: {
+  jobId: string;
+  source: string;
+  externalId: string;
+  url: string;
+}): Promise<void> {
+  await db
+    .insert(jobSourceListings)
+    .values({
+      jobId: listing.jobId,
+      source: listing.source,
+      externalId: listing.externalId,
+      url: listing.url,
+    })
+    .onConflictDoUpdate({
+      target: [jobSourceListings.source, jobSourceListings.externalId],
+      set: {
+        jobId: listing.jobId,
+        url: listing.url,
+      },
+    });
+}
+
+/**
+ * Upsert a board listing into canonical jobs + job_source_listings.
+ * Lookup order: (source, external_id) → fingerprint → insert.
+ */
+export async function upsertJobFromListing(
+  listing: IngestJobListing,
+): Promise<UpsertJobResult> {
+  let job = (
+    await db
+      .select()
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.source, listing.source),
+          eq(jobs.externalId, listing.externalId),
+        ),
+      )
+      .limit(1)
+  )[0];
+
+  let created = false;
+  let fingerprintMatched = false;
+
+  if (!job) {
+    const [byFingerprint] = await db
+      .select()
+      .from(jobs)
+      .where(eq(jobs.fingerprint, listing.fingerprint))
+      .limit(1);
+
+    if (byFingerprint) {
+      job = byFingerprint;
+      fingerprintMatched = true;
+    } else {
+      const [inserted] = await db
+        .insert(jobs)
+        .values(toJobValues(listing))
+        .returning();
+      job = inserted;
+      created = true;
+    }
+  }
+
+  await upsertJobSourceListing({
+    jobId: job.id,
+    source: listing.source,
+    externalId: listing.externalId,
+    url: listing.url,
+  });
+
+  return { jobId: job.id, created, fingerprintMatched };
+}
+
+/** Dual-source fetch + upsert jobs + ensure embeddings. Shared by search-run worker. */
 export async function ingestJobsForProfile(
   profile: ResolvedProfile,
 ): Promise<IngestJobsResult> {
@@ -59,44 +191,61 @@ export async function ingestJobsForProfile(
     buildProfileEmbeddingText(profile),
   );
 
-  const adzunaResult = await searchAdzuna(profile);
+  const [adzunaSettled, joobleSettled] = await Promise.allSettled([
+    searchAdzuna(profile),
+    searchJooble(profile),
+  ]);
+
+  const sourceErrors: { source: string; message: string }[] = [];
+  const listings: IngestJobListing[] = [];
+  let adzunaDebug: IngestJobsResult["adzunaDebug"] = null;
+  let joobleDebug: IngestJobsResult["joobleDebug"] = null;
+
+  if (adzunaSettled.status === "fulfilled") {
+    adzunaDebug = {
+      requestUrl: adzunaSettled.value.redactedUrl,
+      rawResponse: adzunaSettled.value.rawResponseText,
+    };
+    listings.push(...adzunaSettled.value.jobs);
+  } else {
+    const message =
+      adzunaSettled.reason instanceof Error
+        ? adzunaSettled.reason.message
+        : String(adzunaSettled.reason);
+    sourceErrors.push({ source: "adzuna", message });
+    console.error("Adzuna search failed during ingest:", message);
+  }
+
+  if (joobleSettled.status === "fulfilled") {
+    joobleDebug = {
+      requestUrl: joobleSettled.value.requestUrl,
+      rawResponse: joobleSettled.value.rawResponseText,
+    };
+    listings.push(...joobleSettled.value.jobs);
+  } else {
+    const message =
+      joobleSettled.reason instanceof Error
+        ? joobleSettled.reason.message
+        : String(joobleSettled.reason);
+    sourceErrors.push({ source: "jooble", message });
+    console.error("Jooble search failed during ingest:", message);
+  }
+
   const jobIds: string[] = [];
+  const seenJobIds = new Set<string>();
   let jobsSeen = 0;
   let embeddingsCreated = 0;
 
-  for (const adzunaJob of adzunaResult.jobs) {
+  for (const listing of listings) {
     jobsSeen += 1;
+    const upserted = await upsertJobFromListing(listing);
 
     let job = (
-      await db
-        .select()
-        .from(jobs)
-        .where(
-          and(
-            eq(jobs.source, adzunaJob.source),
-            eq(jobs.externalId, adzunaJob.externalId),
-          ),
-        )
-        .limit(1)
+      await db.select().from(jobs).where(eq(jobs.id, upserted.jobId)).limit(1)
     )[0];
 
     if (!job) {
-      const [inserted] = await db
-        .insert(jobs)
-        .values({
-          ...adzunaJob,
-          postedAt: adzunaJob.postedAt ? new Date(adzunaJob.postedAt) : null,
-          salaryMin:
-            adzunaJob.salaryMin !== null && adzunaJob.salaryMin !== undefined
-              ? Math.round(adzunaJob.salaryMin)
-              : null,
-          salaryMax:
-            adzunaJob.salaryMax !== null && adzunaJob.salaryMax !== undefined
-              ? Math.round(adzunaJob.salaryMax)
-              : null,
-        })
-        .returning();
-      job = inserted;
+      throw new Error(`Job missing after upsert: ${upserted.jobId}`);
     }
 
     if (!job.embedding) {
@@ -115,7 +264,10 @@ export async function ingestJobsForProfile(
       embeddingsCreated += 1;
     }
 
-    jobIds.push(job.id);
+    if (!seenJobIds.has(job.id)) {
+      seenJobIds.add(job.id);
+      jobIds.push(job.id);
+    }
   }
 
   return {
@@ -123,10 +275,9 @@ export async function ingestJobsForProfile(
     jobsSeen,
     embeddingsCreated,
     profileEmbedding,
-    adzunaDebug: {
-      requestUrl: adzunaResult.redactedUrl,
-      rawResponse: adzunaResult.rawResponseText,
-    },
+    sourceErrors,
+    adzunaDebug,
+    joobleDebug,
   };
 }
 
@@ -265,7 +416,9 @@ export async function runJobSearch(options: {
   profileReused: boolean;
   stats: JobSearchStats;
   results: JobSearchResultItem[];
-  adzunaDebug: { requestUrl: string; rawResponse: string };
+  adzunaDebug: { requestUrl: string; rawResponse: string } | null;
+  joobleDebug: { requestUrl: string; rawResponse: string } | null;
+  sourceErrors: { source: string; message: string }[];
 }> {
   const { profile, profileReused } = options;
   const ingest = await ingestJobsForProfile(profile);
@@ -297,5 +450,7 @@ export async function runJobSearch(options: {
     stats,
     results,
     adzunaDebug: ingest.adzunaDebug,
+    joobleDebug: ingest.joobleDebug,
+    sourceErrors: ingest.sourceErrors,
   };
 }

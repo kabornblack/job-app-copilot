@@ -9,6 +9,8 @@ import {
   numeric,
   vector,
   jsonb,
+  unique,
+  index,
 } from "drizzle-orm/pg-core";
 
 export const applicationStatus = pgEnum("application_status", [
@@ -51,25 +53,57 @@ export const profiles = pgTable("profiles", {
   isActive: boolean("is_active").notNull().default(true),
 });
 
-export const jobs = pgTable("jobs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  source: text("source").notNull(),
-  externalId: text("external_id").notNull(),
-  fingerprint: text("fingerprint").notNull(),
-  title: text("title").notNull(),
-  company: text("company").notNull(),
-  location: text("location"),
-  remoteType: text("remote_type"),
-  salaryMin: integer("salary_min"),
-  salaryMax: integer("salary_max"),
-  description: text("description"),
-  url: text("url").notNull(),
-  postedAt: timestamp("posted_at", { withTimezone: true }),
-  ingestedAt: timestamp("ingested_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  embedding: vector("embedding", { dimensions: 1536 }),
-});
+export const jobs = pgTable(
+  "jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    source: text("source").notNull(),
+    externalId: text("external_id").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    title: text("title").notNull(),
+    company: text("company").notNull(),
+    location: text("location"),
+    remoteType: text("remote_type"),
+    salaryMin: integer("salary_min"),
+    salaryMax: integer("salary_max"),
+    description: text("description"),
+    url: text("url").notNull(),
+    postedAt: timestamp("posted_at", { withTimezone: true }),
+    ingestedAt: timestamp("ingested_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    embedding: vector("embedding", { dimensions: 1536 }),
+  },
+  (table) => ({
+    sourceExternalIdUnique: unique("jobs_source_external_id_unique").on(
+      table.source,
+      table.externalId,
+    ),
+    fingerprintIdx: index("jobs_fingerprint_idx").on(table.fingerprint),
+  }),
+);
+
+export const jobSourceListings = pgTable(
+  "job_source_listings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jobId: uuid("job_id")
+      .references(() => jobs.id, { onDelete: "cascade" })
+      .notNull(),
+    source: text("source").notNull(),
+    externalId: text("external_id").notNull(),
+    url: text("url").notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    sourceExternalIdUnique: unique(
+      "job_source_listings_source_external_id_unique",
+    ).on(table.source, table.externalId),
+    jobIdIdx: index("job_source_listings_job_id_idx").on(table.jobId),
+  }),
+);
 
 export const matches = pgTable("matches", {
   id: uuid("id").primaryKey().defaultRandom(),
