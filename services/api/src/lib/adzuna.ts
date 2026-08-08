@@ -1,4 +1,4 @@
-import crypto from "crypto";
+import { computeJobFingerprint } from "./job-fingerprint";
 import { captureProviderError } from "./sentry";
 
 export interface AdzunaProfile {
@@ -43,10 +43,7 @@ export function parseAdzunaResult(result: AdzunaResult): AdzunaJob {
   const location = result.location?.display_name?.trim() ?? null;
   const remoteType = result.contract_type?.trim() ?? null;
   const externalId = result.id;
-  const fingerprint = crypto
-    .createHash("sha256")
-    .update(`${externalId}:${title}:${company}:${location ?? ""}`)
-    .digest("hex");
+  const fingerprint = computeJobFingerprint({ title, company, location });
 
   return {
     source: "adzuna",

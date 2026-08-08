@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deriveAdzunaCountry, parseAdzunaResult } from "./adzuna";
+import { computeJobFingerprint } from "./job-fingerprint";
 
 describe("parseAdzunaResult", () => {
   it("maps Adzuna fields to job schema", () => {
@@ -29,6 +30,13 @@ describe("parseAdzunaResult", () => {
     expect(job.description).toBe("Build scalable APIs.");
     expect(job.url).toBe("https://adzuna.example/job/123");
     expect(job.postedAt).toBe("2026-08-06T12:00:00Z");
+    expect(job.fingerprint).toBe(
+      computeJobFingerprint({
+        title: "Senior Backend Engineer",
+        company: "Acme Corp",
+        location: "Tallinn, Estonia",
+      }),
+    );
   });
 
   it("derives supported Adzuna countries and fallbacks", () => {
