@@ -6,3 +6,12 @@ pnpm-lock.yaml
 .env
 .DS_Store
 job-app-notes.txt
+
+# Scratch test/debug output written by the AI assistant - never commit
+dedup*.json
+search*.json
+payload*.json
+*-result.json
+*-debug.json
+*.debug.json
+test-output*
