@@ -4,6 +4,7 @@ import { access } from "fs/promises";
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import { requireSupabaseAuth } from "./lib/auth";
 import { initSentry, captureException, flushSentry } from "./lib/sentry";
 import { db } from "./db/client";
 import {
@@ -41,6 +42,8 @@ server.addHook("onRequest", async (request, reply) => {
     await reply.status(204).send();
   }
 });
+
+server.addHook("onRequest", requireSupabaseAuth);
 
 server.get("/health", async () => ({ status: "ok" }));
 

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "../../lib/api";
 import JobCard, {
   type GeneratedDocumentResult,
   type JobSummary,
@@ -33,7 +34,7 @@ export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetch(`${apiUrl}/applications/review-queue`)
+    apiFetch(`/applications/review-queue`)
       .then(async (response) => {
         if (!response.ok) {
           const message = await response.text();
@@ -64,11 +65,10 @@ export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
     applicationId: string,
     docType: "cv" | "cover_letter",
   ): Promise<GeneratedDocumentResult | null> => {
-    const response = await fetch(
-      `${apiUrl}/applications/${applicationId}/generate`,
+    const response = await apiFetch(
+      `/applications/${applicationId}/generate`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: docType }),
       },
     );
@@ -94,11 +94,10 @@ export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
   };
 
   const handleStatusChange = async (applicationId: string, status: string) => {
-    const response = await fetch(
-      `${apiUrl}/applications/${applicationId}/status`,
+    const response = await apiFetch(
+      `/applications/${applicationId}/status`,
       {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       },
     );

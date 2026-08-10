@@ -3,6 +3,7 @@
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef, useState } from "react";
+import { apiFetch } from "../../lib/api";
 
 export type TipTapDoc = {
   type: "doc";
@@ -20,19 +21,10 @@ type DocumentEditorProps = {
 
 type EditorMode = "write" | "preview";
 
-function downloadUrl(
-  apiUrl: string,
-  applicationId: string,
-  docType: "cv" | "cover_letter",
-  format: "docx" | "pdf",
-) {
-  return `${apiUrl}/applications/${applicationId}/documents/${docType}/download?format=${format}`;
-}
-
 export default function DocumentEditor({
   title,
   applicationId,
-  apiUrl,
+  apiUrl: _apiUrl,
   docType,
   initialJson,
   onSaved,
@@ -41,6 +33,7 @@ export default function DocumentEditor({
   const [status, setStatus] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [mode, setMode] = useState<EditorMode>("write");
+  const [downloading, setDownloading] = useState<"docx" | "pdf" | null>(null);
   const ignoreUpdatesRef = useRef(false);
 
   const editor = useEditor({
@@ -98,11 +91,10 @@ export default function DocumentEditor({
     setStatus(null);
     try {
       const contentJson = editor.getJSON() as TipTapDoc;
-      const response = await fetch(
-        `${apiUrl}/applications/${applicationId}/documents/${docType}`,
+      const response = await apiFetch(
+        `/applications/${applicationId}/documents/${docType}`,
         {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ contentJson }),
         },
       );
@@ -121,6 +113,32 @@ export default function DocumentEditor({
       setStatus(error instanceof Error ? error.message : "Save failed");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDownload = async (format: "docx" | "pdf") => {
+    setDownloading(format);
+    setStatus(null);
+    try {
+      const response = await apiFetch(
+        `/applications/${applicationId}/documents/${docType}/download?format=${format}`,
+      );
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Failed to download ${format}`);
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = `${docType}.${format}`;
+      anchor.click();
+      URL.revokeObjectURL(objectUrl);
+      setStatus(`Downloaded ${format.toUpperCase()}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Download failed");
+    } finally {
+      setDownloading(null);
     }
   };
 
@@ -346,18 +364,22 @@ export default function DocumentEditor({
         >
           {saving ? "Saving…" : "Save"}
         </button>
-        <a
-          href={downloadUrl(apiUrl, applicationId, docType, "docx")}
-          style={{ padding: "0.5rem 0.9rem", border: "1px solid #ccc" }}
+        <button
+          type="button"
+          disabled={downloading !== null}
+          onClick={() => void handleDownload("docx")}
+          style={{ padding: "0.5rem 0.9rem" }}
         >
-          Download DOCX
-        </a>
-        <a
-          href={downloadUrl(apiUrl, applicationId, docType, "pdf")}
-          style={{ padding: "0.5rem 0.9rem", border: "1px solid #ccc" }}
+          {downloading === "docx" ? "Downloading…" : "Download DOCX"}
+        </button>
+        <button
+          type="button"
+          disabled={downloading !== null}
+          onClick={() => void handleDownload("pdf")}
+          style={{ padding: "0.5rem 0.9rem" }}
         >
-          Download PDF
-        </a>
+          {downloading === "pdf" ? "Downloading…" : "Download PDF"}
+        </button>
       </div>
       {status ? (
         <p style={{ margin: "0.5rem 0 0", color: dirty ? "#a40" : "#285" }}>

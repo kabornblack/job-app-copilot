@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { apiFetch } from "../../lib/api";
 
 type ProfileFormProps = {
   apiUrl: string;
@@ -64,7 +65,7 @@ export default function ProfileForm({
 
   const pollSearchRun = async (runId: string): Promise<SearchRunResponse> => {
     for (;;) {
-      const response = await fetch(`${apiUrl}/search-runs/${runId}`);
+      const response = await apiFetch(`/search-runs/${runId}`);
       if (!response.ok) {
         const error = await response.text();
         throw new Error(error || "Failed to load search run status");
@@ -97,9 +98,8 @@ export default function ProfileForm({
     };
 
     try {
-      const response = await fetch(`${apiUrl}/jobs/search`, {
+      const response = await apiFetch(`/jobs/search`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profile }),
       });
 

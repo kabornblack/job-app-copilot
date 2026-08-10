@@ -1,3 +1,4 @@
+import AuthBar from "./components/AuthBar";
 import Dashboard from "./components/Dashboard";
 
 export default function HomePage() {
@@ -11,10 +12,11 @@ export default function HomePage() {
     >
       <div style={{ maxWidth: 1000, margin: "0 auto" }}>
         <header style={{ marginBottom: "2rem" }}>
+          <AuthBar />
           <h1>Job Application Copilot</h1>
           <p>
-            Phase 1: profile intake, Adzuna search, scoring, review queue, and
-            generated text.
+            Profile intake, multi-source search, scoring, review queue, and
+            generated documents.
           </p>
         </header>
         <Dashboard />
