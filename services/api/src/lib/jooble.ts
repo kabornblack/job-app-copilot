@@ -5,8 +5,8 @@ export interface JoobleProfile {
   skills: string[];
   targetRoles: string[];
   locations: string[];
-  remotePref: string;
-  resumeSummary?: string;
+  remotePref: string | null;
+  resumeSummary?: string | null;
 }
 
 export interface JoobleJob {

@@ -35,6 +35,7 @@ describe("scoreMatchForJob idempotency", () => {
     const [profile] = await db
       .insert(profiles)
       .values({
+        userId: "00000000-0000-4000-8000-000000000001",
         version: 1,
         skills: ["React", "TypeScript"],
         targetRoles: ["Software Engineer"],

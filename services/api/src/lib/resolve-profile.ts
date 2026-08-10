@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "../db/client";
 import { profiles } from "../db/schema";
 import { profileDataEquals, type ProfileFields } from "./profile";
@@ -12,11 +12,12 @@ export type ResolveProfileResult = {
 
 export async function resolveActiveProfile(
   incomingProfile: ProfileFields,
+  userId: string,
 ): Promise<ResolveProfileResult> {
   const [activeProfile] = await db
     .select()
     .from(profiles)
-    .where(eq(profiles.isActive, true))
+    .where(and(eq(profiles.userId, userId), eq(profiles.isActive, true)))
     .orderBy(desc(profiles.createdAt))
     .limit(1);
 
@@ -28,12 +29,13 @@ export async function resolveActiveProfile(
     await db
       .update(profiles)
       .set({ isActive: false })
-      .where(eq(profiles.isActive, true));
+      .where(and(eq(profiles.userId, userId), eq(profiles.isActive, true)));
   }
 
   const [insertedProfile] = await db
     .insert(profiles)
     .values({
+      userId,
       version: activeProfile ? activeProfile.version + 1 : 1,
       skills: incomingProfile.skills,
       targetRoles: incomingProfile.targetRoles ?? [],

@@ -82,9 +82,9 @@ export async function registerBullBoard(
     }
   });
 
+  // basePath is set via serverAdapter.setBasePath above; Fastify register only takes prefix.
   await server.register(serverAdapter.registerPlugin(), {
     prefix: BOARD_BASE_PATH,
-    basePath: BOARD_BASE_PATH,
   });
 
   server.log.info(

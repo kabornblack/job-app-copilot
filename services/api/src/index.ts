@@ -57,8 +57,14 @@ if ((process.env.SENTRY_ENVIRONMENT ?? "development") === "development") {
 
 server.setErrorHandler(async (error, request, reply) => {
   const statusCode =
-    typeof error.statusCode === "number" ? error.statusCode : 500;
+    typeof error === "object" &&
+    error !== null &&
+    "statusCode" in error &&
+    typeof (error as { statusCode: unknown }).statusCode === "number"
+      ? (error as { statusCode: number }).statusCode
+      : 500;
   const isClientError = statusCode >= 400 && statusCode < 500;
+  const message = error instanceof Error ? error.message : "Internal Server Error";
 
   if (!isClientError) {
     const eventId = captureException(error, {
@@ -79,7 +85,7 @@ server.setErrorHandler(async (error, request, reply) => {
   }
 
   return reply.status(statusCode).send({
-    error: isClientError ? error.message : "Internal Server Error",
+    error: isClientError ? message : "Internal Server Error",
   });
 });
 
@@ -126,16 +132,23 @@ const statusSchema = z.object({
 });
 
 server.post("/jobs/search", async (request, reply) => {
+  const userId = request.user?.id;
+  if (!userId) {
+    return reply.status(401).send({ error: "Unauthorized" });
+  }
+
   const body = searchBodySchema.parse(request.body);
 
   try {
     const { profile, profileReused } = await resolveActiveProfile(
       body.profile,
+      userId,
     );
 
     const [run] = await db
       .insert(searchRuns)
       .values({
+        userId,
         profileId: profile.id,
         trigger: "manual",
         status: "queued",
@@ -176,11 +189,16 @@ server.post("/jobs/search", async (request, reply) => {
 });
 
 server.get("/search-runs/:id", async (request, reply) => {
+  const userId = request.user?.id;
+  if (!userId) {
+    return reply.status(401).send({ error: "Unauthorized" });
+  }
+
   const params = z.object({ id: z.string().uuid() }).parse(request.params);
   const [run] = await db
     .select()
     .from(searchRuns)
-    .where(eq(searchRuns.id, params.id))
+    .where(and(eq(searchRuns.id, params.id), eq(searchRuns.userId, userId)))
     .limit(1);
 
   if (!run) {
@@ -203,11 +221,13 @@ server.get("/search-runs/:id", async (request, reply) => {
 const generateForApplication = async (
   applicationId: string,
   type: "cv" | "cover_letter",
+  userId: string,
 ) => {
   const row = (
     await db
       .select({
         applicationId: applications.id,
+        userId: applications.userId,
         jobTitle: jobs.title,
         company: jobs.company,
         location: jobs.location,
@@ -225,7 +245,12 @@ const generateForApplication = async (
       .innerJoin(matches, eq(matches.id, applications.matchId))
       .innerJoin(jobs, eq(jobs.id, applications.jobId))
       .innerJoin(profiles, eq(profiles.id, matches.profileId))
-      .where(eq(applications.id, applicationId))
+      .where(
+        and(
+          eq(applications.id, applicationId),
+          eq(applications.userId, userId),
+        ),
+      )
       .limit(1)
   )[0];
 
@@ -263,6 +288,7 @@ const generateForApplication = async (
         and(
           eq(generatedDocuments.applicationId, row.applicationId),
           eq(generatedDocuments.docType, type),
+          eq(generatedDocuments.userId, userId),
         ),
       )
       .limit(1)
@@ -280,13 +306,19 @@ const generateForApplication = async (
         promptVersion: "phase1-v1",
         generatedAt: new Date(),
       })
-      .where(eq(generatedDocuments.id, existingDocument.id))
+      .where(
+        and(
+          eq(generatedDocuments.id, existingDocument.id),
+          eq(generatedDocuments.userId, userId),
+        ),
+      )
       .returning();
     generated = updated;
   } else {
     const [inserted] = await db
       .insert(generatedDocuments)
       .values({
+        userId,
         applicationId: row.applicationId,
         docType: type,
         content,
@@ -305,18 +337,25 @@ const generateForApplication = async (
         ? { cvDocumentId: generated.id }
         : { coverLetterDocumentId: generated.id },
     )
-    .where(eq(applications.id, row.applicationId));
+    .where(
+      and(eq(applications.id, row.applicationId), eq(applications.userId, userId)),
+    );
 
   return generated;
 };
 
 server.post("/applications/:applicationId/generate", async (request, reply) => {
+  const userId = request.user?.id;
+  if (!userId) {
+    return reply.status(401).send({ error: "Unauthorized" });
+  }
+
   const { applicationId } = z
     .object({ applicationId: z.string().uuid() })
     .parse(request.params);
   const { type } = generateBodySchema.parse(request.body);
 
-  const generated = await generateForApplication(applicationId, type);
+  const generated = await generateForApplication(applicationId, type, userId);
 
   if (!generated) {
     return reply.status(404).send({ error: "Application or job not found" });
@@ -326,6 +365,11 @@ server.post("/applications/:applicationId/generate", async (request, reply) => {
 });
 
 server.post("/jobs/:jobId/generate", async (request, reply) => {
+  const userId = request.user?.id;
+  if (!userId) {
+    return reply.status(401).send({ error: "Unauthorized" });
+  }
+
   const { jobId } = z
     .object({ jobId: z.string().uuid() })
     .parse(request.params);
@@ -335,7 +379,7 @@ server.post("/jobs/:jobId/generate", async (request, reply) => {
     await db
       .select()
       .from(applications)
-      .where(eq(applications.jobId, jobId))
+      .where(and(eq(applications.jobId, jobId), eq(applications.userId, userId)))
       .limit(1)
   )[0];
 
@@ -343,7 +387,7 @@ server.post("/jobs/:jobId/generate", async (request, reply) => {
     return reply.status(404).send({ error: "Application not found" });
   }
 
-  const generated = await generateForApplication(application.id, type);
+  const generated = await generateForApplication(application.id, type, userId);
 
   if (!generated) {
     return reply.status(404).send({ error: "Application or job not found" });
@@ -355,6 +399,11 @@ server.post("/jobs/:jobId/generate", async (request, reply) => {
 server.patch(
   "/applications/:applicationId/documents/:docType",
   async (request, reply) => {
+    const userId = request.user?.id;
+    if (!userId) {
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+
     const params = z
       .object({
         applicationId: z.string().uuid(),
@@ -372,6 +421,7 @@ server.patch(
         and(
           eq(generatedDocuments.applicationId, params.applicationId),
           eq(generatedDocuments.docType, params.docType),
+          eq(generatedDocuments.userId, userId),
         ),
       )
       .limit(1);
@@ -388,7 +438,12 @@ server.patch(
         filePath: null,
         generatedAt: new Date(),
       })
-      .where(eq(generatedDocuments.id, existing.id))
+      .where(
+        and(
+          eq(generatedDocuments.id, existing.id),
+          eq(generatedDocuments.userId, userId),
+        ),
+      )
       .returning();
 
     return updated;
@@ -398,6 +453,11 @@ server.patch(
 server.get(
   "/applications/:applicationId/documents/:docType/download",
   async (request, reply) => {
+    const userId = request.user?.id;
+    if (!userId) {
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+
     const params = z
       .object({
         applicationId: z.string().uuid(),
@@ -415,6 +475,7 @@ server.get(
         and(
           eq(generatedDocuments.applicationId, params.applicationId),
           eq(generatedDocuments.docType, params.docType),
+          eq(generatedDocuments.userId, userId),
         ),
       )
       .limit(1);
@@ -434,7 +495,12 @@ server.get(
     await db
       .update(generatedDocuments)
       .set({ filePath: stem })
-      .where(eq(generatedDocuments.id, document.id));
+      .where(
+        and(
+          eq(generatedDocuments.id, document.id),
+          eq(generatedDocuments.userId, userId),
+        ),
+      );
 
     const absolutePath = absoluteDocumentPath(
       stem,
@@ -463,7 +529,12 @@ server.get(
   },
 );
 
-server.get("/applications/review-queue", async (_request, _reply) => {
+server.get("/applications/review-queue", async (request, reply) => {
+  const userId = request.user?.id;
+  if (!userId) {
+    return reply.status(401).send({ error: "Unauthorized" });
+  }
+
   const cvDocuments = alias(generatedDocuments, "cv_documents");
   const coverLetterDocuments = alias(
     generatedDocuments,
@@ -506,6 +577,7 @@ server.get("/applications/review-queue", async (_request, _reply) => {
         eq(coverLetterDocuments.docType, "cover_letter"),
       ),
     )
+    .where(eq(applications.userId, userId))
     .orderBy(desc(applications.createdAt));
 
   const normalizedQueue = queue.map((item) => ({
@@ -517,6 +589,11 @@ server.get("/applications/review-queue", async (_request, _reply) => {
 });
 
 server.patch("/applications/:applicationId/status", async (request, reply) => {
+  const userId = request.user?.id;
+  if (!userId) {
+    return reply.status(401).send({ error: "Unauthorized" });
+  }
+
   const params = z
     .object({ applicationId: z.string().uuid() })
     .parse(request.params);
@@ -525,7 +602,12 @@ server.patch("/applications/:applicationId/status", async (request, reply) => {
   const [existing] = await db
     .select()
     .from(applications)
-    .where(eq(applications.id, params.applicationId))
+    .where(
+      and(
+        eq(applications.id, params.applicationId),
+        eq(applications.userId, userId),
+      ),
+    )
     .limit(1);
 
   if (!existing) {
@@ -542,7 +624,12 @@ server.patch("/applications/:applicationId/status", async (request, reply) => {
         ? { appliedAt: now }
         : {}),
     })
-    .where(eq(applications.id, params.applicationId))
+    .where(
+      and(
+        eq(applications.id, params.applicationId),
+        eq(applications.userId, userId),
+      ),
+    )
     .returning();
 
   if (!updated) {

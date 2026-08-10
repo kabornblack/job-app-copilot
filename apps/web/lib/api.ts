@@ -2,10 +2,16 @@ import { createClient } from "./supabase/client";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
+type ApiFetchInit = {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string | null;
+};
+
 /** Authenticated fetch to the Fastify API (Bearer Supabase access token). */
 export async function apiFetch(
   path: string,
-  init: RequestInit = {},
+  init: ApiFetchInit = {},
 ): Promise<Response> {
   const supabase = createClient();
   const {

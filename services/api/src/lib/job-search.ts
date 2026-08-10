@@ -354,6 +354,7 @@ export async function scoreMatchForJob(options: {
     const [insertedMatch] = await db
       .insert(matches)
       .values({
+        userId: profile.userId,
         jobId: job.id,
         profileId: profile.id,
         score: claudeScore.score.toFixed(1),
@@ -372,7 +373,11 @@ export async function scoreMatchForJob(options: {
       .select()
       .from(applications)
       .where(
-        and(eq(applications.jobId, job.id), eq(applications.matchId, match.id)),
+        and(
+          eq(applications.userId, profile.userId),
+          eq(applications.jobId, job.id),
+          eq(applications.matchId, match.id),
+        ),
       )
       .limit(1)
   )[0];
@@ -380,6 +385,7 @@ export async function scoreMatchForJob(options: {
   let applicationsCreated = 0;
   if (!existingApplication) {
     await db.insert(applications).values({
+      userId: profile.userId,
       jobId: job.id,
       matchId: match.id,
       status: "found",
