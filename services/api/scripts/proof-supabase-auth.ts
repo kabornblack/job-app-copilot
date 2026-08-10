@@ -1,6 +1,7 @@
 /**
  * End-to-end auth proof: create user → login → Bearer 200 / no Bearer 401.
- * Prefer anon signUp; if rate-limited or confirm-email blocks session, use Admin API.
+ * Uses admin.createUser(email_confirm: true) + @example.com so no confirmation
+ * email is sent (avoids bounce-rate flags from fake mailboxes).
  *
  * pnpm --filter ./services/api exec tsx scripts/proof-supabase-auth.ts
  */
@@ -25,8 +26,10 @@ if (!supabaseUrl || !anonKey || !serviceRoleKey) {
   );
 }
 
-const email = `copilot.auth.proof.${Date.now()}@gmail.com`;
-const password = `ProofPass-${Date.now()}!aA1`;
+const email = `copilot.auth.proof.${Date.now()}@example.com`;
+const password =
+  process.env.PROOF_ISO_PASSWORD?.trim() ||
+  `ProofPass-${Date.now()}Aa1`;
 
 async function main() {
   console.log("supabase host:", new URL(supabaseUrl!).host);
@@ -39,37 +42,19 @@ async function main() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  console.log("\n--- signup ---");
-  const signup = await supabase.auth.signUp({ email, password });
-  let userId = signup.data.user?.id ?? null;
-  let createdVia = "signUp";
-
-  if (signup.error) {
-    console.log("anon signUp error:", signup.error.message);
-    console.log("falling back to admin.createUser (email_confirm: true)");
-    const created = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-    });
-    if (created.error || !created.data.user) {
-      throw new Error(
-        `admin.createUser failed: ${created.error?.message ?? "no user"}`,
-      );
-    }
-    userId = created.data.user.id;
-    createdVia = "admin.createUser";
-  } else if (!signup.data.session && userId) {
-    console.log("session after signup: no (Confirm email ON) — admin confirming");
-    const confirmed = await admin.auth.admin.updateUserById(userId, {
-      email_confirm: true,
-    });
-    if (confirmed.error) {
-      throw new Error(`admin confirm failed: ${confirmed.error.message}`);
-    }
-  } else {
-    console.log("session after signup: yes");
+  console.log("\n--- createUser (admin, email_confirm: true, no outbound email) ---");
+  const created = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+  });
+  if (created.error || !created.data.user) {
+    throw new Error(
+      `admin.createUser failed: ${created.error?.message ?? "no user"}`,
+    );
   }
+  const userId = created.data.user.id;
+  const createdVia = "admin.createUser";
 
   console.log("user id:", userId);
   console.log("created via:", createdVia);

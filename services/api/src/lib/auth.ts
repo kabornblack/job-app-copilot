@@ -20,6 +20,9 @@ function isPublicRoute(url: string, method: string): boolean {
   if (path === "/health") {
     return true;
   }
+  if (path === "/auth/signup" && method === "POST") {
+    return true;
+  }
   if (path.startsWith("/admin/queues")) {
     return true;
   }
@@ -44,6 +47,22 @@ function getSupabaseAdmin() {
   }
   const url = normalizeSupabaseUrl(rawUrl);
   return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+/** Anon client for signup — respects project Confirm-email settings. */
+export function getSupabaseAnon() {
+  const rawUrl = process.env.SUPABASE_URL?.trim();
+  const anonKey = process.env.SUPABASE_ANON_KEY?.trim();
+  if (!rawUrl || !anonKey) {
+    throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY are required for signup");
+  }
+  const url = normalizeSupabaseUrl(rawUrl);
+  return createClient(url, anonKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,

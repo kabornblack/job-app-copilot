@@ -263,13 +263,20 @@ Don't add payments before the app is safely multi-tenant and hosted.
 - Supabase "Confirm email" is ON in this project — signup may not return a
   session until confirmed (disable Confirm email for smoother local UX, or
   confirm via Admin API)
-- Anon signup hits email rate limits quickly in free tier; use a real inbox
-  or temporarily disable confirm email
+- Anon signup hits email rate limits / bounce flags quickly — for scripts use
+  `admin.createUser` + `email_confirm: true` and `@example.com` only (never
+  fake gmail/outlook addresses). Real-user signup UX: disable Confirm email
+  locally, or use a real inbox you control
 - Next must stay on port 3000; if 3000 is busy it steals 3001 from the API
 - `user_id` is uuid-only (no FK to Supabase `auth.users`) — app DB is local
   Docker Postgres, Auth is hosted Supabase
 - Multi-tenant wipe in `0005` truncated profiles/apps/matches/docs/search_runs;
   shared `jobs` kept
+
+- [ ] Switch from Supabase's default email sender to a custom SMTP provider
+      (Resend) once a custom domain is available — needed before scaling
+      beyond the initial small friend group, to avoid shared-reputation
+      bounce/deliverability issues
 
 ## How to start everything
 

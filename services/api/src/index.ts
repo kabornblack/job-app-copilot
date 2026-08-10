@@ -4,7 +4,8 @@ import { access } from "fs/promises";
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { requireSupabaseAuth } from "./lib/auth";
+import { getSupabaseAnon, requireSupabaseAuth } from "./lib/auth";
+import { validatePassword } from "./lib/password";
 import { initSentry, captureException, flushSentry } from "./lib/sentry";
 import { db } from "./db/client";
 import {
@@ -46,6 +47,44 @@ server.addHook("onRequest", async (request, reply) => {
 server.addHook("onRequest", requireSupabaseAuth);
 
 server.get("/health", async () => ({ status: "ok" }));
+
+const signupSchema = z.object({
+  email: z.string().email(),
+  password: z.string(),
+});
+
+server.post("/auth/signup", async (request, reply) => {
+  const body = signupSchema.parse(request.body);
+  const passwordCheck = validatePassword(body.password);
+  if (!passwordCheck.ok) {
+    return reply.status(400).send({
+      error: "Password does not meet requirements",
+      details: passwordCheck.errors,
+      strength: passwordCheck.strength,
+    });
+  }
+
+  const supabase = getSupabaseAnon();
+  const { data, error } = await supabase.auth.signUp({
+    email: body.email.trim(),
+    password: body.password,
+  });
+  if (error) {
+    return reply.status(400).send({ error: error.message });
+  }
+
+  return reply.status(201).send({
+    user: data.user
+      ? { id: data.user.id, email: data.user.email ?? null }
+      : null,
+    session: data.session
+      ? {
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        }
+      : null,
+  });
+});
 
 if ((process.env.SENTRY_ENVIRONMENT ?? "development") === "development") {
   server.get("/debug/sentry-test", async () => {
