@@ -3,6 +3,7 @@
  * - A and B each see only their review-queue rows
  * - B gets 404 on A's applicationId (status PATCH)
  *
+ * Requires PROOF_ISO_PASSWORD in the environment (throwaway local accounts).
  * pnpm --filter ./services/api exec tsx scripts/proof-user-isolation.ts
  */
 import { config } from "dotenv";
@@ -27,13 +28,16 @@ const supabaseUrl = process.env.SUPABASE_URL?.trim()
   .replace(/\/rest\/v1$/i, "");
 const anonKey = process.env.SUPABASE_ANON_KEY?.trim();
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+const password = process.env.PROOF_ISO_PASSWORD?.trim();
 
 if (!supabaseUrl || !anonKey || !serviceRoleKey) {
   throw new Error("Supabase env vars required");
 }
+if (!password) {
+  throw new Error("PROOF_ISO_PASSWORD required (local throwaway auth password)");
+}
 
 const stamp = Date.now();
-const password = `IsoPass-${stamp}!aA1`;
 
 async function createConfirmedUser(label: string) {
   const email = `copilot.iso.${label}.${stamp}@gmail.com`;
@@ -42,7 +46,7 @@ async function createConfirmedUser(label: string) {
   });
   const created = await admin.auth.admin.createUser({
     email,
-    password,
+    password: password!,
     email_confirm: true,
   });
   if (created.error || !created.data.user) {
@@ -52,7 +56,10 @@ async function createConfirmedUser(label: string) {
   const anon = createClient(supabaseUrl!, anonKey!, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const login = await anon.auth.signInWithPassword({ email, password });
+  const login = await anon.auth.signInWithPassword({
+    email,
+    password: password!,
+  });
   if (login.error || !login.data.session?.access_token) {
     throw new Error(`${label} login: ${login.error?.message}`);
   }
