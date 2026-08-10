@@ -212,3 +212,32 @@ safe to build on — versus what's still pending.
   Kingdom" / "Berlin" / empty return results
 - Fingerprint SQL recompute must use `convert_to(...) || '\000'::bytea`,
   not `E'\0'` in text
+
+## Phase 6 — Multi-tenant conversion — NOT STARTED
+
+Converts the app from single-user local tool to a small multi-user product
+for a closed group (~5 friends), one-time-fee access.
+
+- [ ] Supabase Auth wired into Next.js (login/signup) and Fastify (verify
+      session/JWT on protected routes)
+- [ ] Migration: add user_id to applications, matches, generated_documents,
+      profiles (jobs table stays shared/global — listings aren't per-user)
+- [ ] Every existing route filtered by authenticated user_id — audit all
+      of index.ts, not just new routes
+- [ ] Per-user usage quotas (daily search cap, monthly doc-gen cap) to
+      protect shared API keys (Adzuna/Claude/OpenAI) from runaway cost
+      across multiple users
+- [ ] Deploy to Railway or Render — real hosting, Postgres + Redis + API +
+      worker + web, before payments go live
+- [ ] Stripe one-time payment gating access (not subscription for v1)
+
+Order matters: auth → data isolation → quotas → deployment → payments.
+Don't add payments before the app is safely multi-tenant and hosted.
+
+## How to start everything
+
+1. docker compose up -d (repo root)
+2. Terminal 1: cd services/api; pnpm dev
+3. Terminal 2: cd services/api; pnpm worker
+4. Terminal 3: cd apps/web; pnpm dev
+5. Open http://localhost:3000
