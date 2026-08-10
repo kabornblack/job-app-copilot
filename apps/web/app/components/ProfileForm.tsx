@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { apiFetch } from "../../lib/api";
 
 type ProfileFormProps = {
@@ -28,7 +28,6 @@ const sleep = (ms: number) =>
   });
 
 export default function ProfileForm({
-  apiUrl,
   onSearchComplete,
 }: ProfileFormProps) {
   const [skills, setSkills] = useState("");
@@ -80,7 +79,7 @@ export default function ProfileForm({
     }
   };
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitting(true);
     setStatusTone("info");

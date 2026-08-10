@@ -52,10 +52,11 @@ async function main() {
     throw new Error("No active profile — cannot prove cron search_runs row");
   }
 
+  const runId = enqueued.runIds[0];
   const [row] = await db
     .select()
     .from(searchRuns)
-    .where(eq(searchRuns.id, enqueued.runId))
+    .where(eq(searchRuns.id, runId))
     .limit(1);
 
   console.log(
@@ -66,6 +67,7 @@ async function main() {
         trigger: row?.trigger,
         status: row?.status,
         profileId: row?.profileId,
+        userId: row?.userId,
       },
       null,
       2,
@@ -82,7 +84,7 @@ async function main() {
     const [current] = await db
       .select()
       .from(searchRuns)
-      .where(eq(searchRuns.id, enqueued.runId))
+      .where(eq(searchRuns.id, runId))
       .limit(1);
     console.log(
       JSON.stringify({

@@ -232,10 +232,20 @@ for a closed group (~5 friends), one-time-fee access.
         without auth → `401 {"error":"Unauthorized"}`; with Bearer → `200`
         queue JSON; browser `GET /` → `307 Location: /login`; `/login` and
         `/signup` return 200 with forms
-- [ ] Migration: add user_id to applications, matches, generated_documents,
+- [x] Migration: add user_id to applications, matches, generated_documents,
       profiles (jobs table stays shared/global — listings aren't per-user)
-- [ ] Every existing route filtered by authenticated user_id — audit all
+      - Migration `0005_user_id`: wipe user-owned tables; add `user_id uuid
+        NOT NULL` (no cross-DB FK to Supabase auth.users); also on
+        `search_runs`; unique one active profile per user
+- [x] Every existing route filtered by authenticated user_id — audit all
       of index.ts, not just new routes
+      - `resolveActiveProfile(profile, userId)`; inserts set `user_id`;
+        all SELECT/UPDATE in `index.ts` scoped; worker scoring inherits
+        from profile; cron enqueues every active profile
+      - Verified two users: A `865be73b-…` / B `f3839968-…`; A queue only
+        `a1bca142-…` (Alpha); B queue only `bda4a49c-…` (Beta); B PATCH A’s
+        applicationId → `404 {"error":"Application not found"}`; A PATCH
+        own → `200` status reviewing
 - [ ] Per-user usage quotas (daily search cap, monthly doc-gen cap) to
       protect shared API keys (Adzuna/Claude/OpenAI) from runaway cost
       across multiple users
@@ -256,6 +266,10 @@ Don't add payments before the app is safely multi-tenant and hosted.
 - Anon signup hits email rate limits quickly in free tier; use a real inbox
   or temporarily disable confirm email
 - Next must stay on port 3000; if 3000 is busy it steals 3001 from the API
+- `user_id` is uuid-only (no FK to Supabase `auth.users`) — app DB is local
+  Docker Postgres, Auth is hosted Supabase
+- Multi-tenant wipe in `0005` truncated profiles/apps/matches/docs/search_runs;
+  shared `jobs` kept
 
 ## How to start everything
 

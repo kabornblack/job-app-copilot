@@ -1,14 +1,22 @@
 "use client";
 
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../../lib/api";
 
-export type TipTapDoc = {
+/** TipTap document root — uses TipTap's JSONContent (not unknown[]). */
+export type TipTapDoc = JSONContent & {
   type: "doc";
-  content?: unknown[];
 };
+
+function asTipTapDoc(value: JSONContent): TipTapDoc {
+  return {
+    ...value,
+    type: "doc",
+    content: value.content ?? [],
+  };
+}
 
 type DocumentEditorProps = {
   title: string;
@@ -24,7 +32,6 @@ type EditorMode = "write" | "preview";
 export default function DocumentEditor({
   title,
   applicationId,
-  apiUrl: _apiUrl,
   docType,
   initialJson,
   onSaved,
@@ -48,7 +55,7 @@ export default function DocumentEditor({
         horizontalRule: false,
       }),
     ],
-    content: initialJson ?? { type: "doc", content: [] },
+    content: initialJson ?? ({ type: "doc", content: [] } satisfies TipTapDoc),
     immediatelyRender: false,
     onUpdate: () => {
       if (ignoreUpdatesRef.current) {
@@ -90,7 +97,7 @@ export default function DocumentEditor({
     setSaving(true);
     setStatus(null);
     try {
-      const contentJson = editor.getJSON() as TipTapDoc;
+      const contentJson = asTipTapDoc(editor.getJSON());
       const response = await apiFetch(
         `/applications/${applicationId}/documents/${docType}`,
         {
@@ -102,12 +109,15 @@ export default function DocumentEditor({
         const message = await response.text();
         throw new Error(message || "Failed to save document");
       }
-      const saved = await response.json();
+      const saved = (await response.json()) as {
+        content?: string;
+        contentJson?: JSONContent;
+      };
       setDirty(false);
       setStatus("Saved.");
       onSaved?.({
         content: saved.content ?? "",
-        contentJson: saved.contentJson as TipTapDoc,
+        contentJson: asTipTapDoc(saved.contentJson ?? contentJson),
       });
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Save failed");

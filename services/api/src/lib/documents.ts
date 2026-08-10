@@ -141,7 +141,7 @@ export function parseDocumentBlocks(content: string): SeedBlock[] {
 
     const plain = line;
     const isAllCapsHeading =
-      /^[A-Z][A-Z0-9 &/\-]{2,40}$/.test(plain) && !plain.includes(".");
+      /^[A-Z][A-Z0-9 &/-]{2,40}$/.test(plain) && !plain.includes(".");
     if (isAllCapsHeading) {
       flushParagraph();
       blocks.push({

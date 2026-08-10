@@ -2,8 +2,8 @@ export interface ProfileInput {
   skills: string[];
   targetRoles: string[];
   locations: string[];
-  remotePref: "remote" | "hybrid" | "onsite" | "any";
-  resumeSummary?: string;
+  remotePref: "remote" | "hybrid" | "onsite" | "any" | string | null;
+  resumeSummary?: string | null;
 }
 
 export interface JobInput {
@@ -19,12 +19,6 @@ const normalize = (value: string | null | undefined) =>
 
 const joinText = (...values: Array<string | null | undefined>) =>
   values.map(normalize).filter(Boolean).join(" ");
-
-const splitTerms = (value: string) =>
-  value
-    .split(/[^a-z0-9]+/i)
-    .map((token) => token.trim())
-    .filter(Boolean);
 
 export function scoreProfileJob(profile: ProfileInput, job: JobInput) {
   const jobText = joinText(
@@ -50,9 +44,10 @@ export function scoreProfileJob(profile: ProfileInput, job: JobInput) {
     ? 1
     : 0;
 
+  const remotePref = profile.remotePref ?? "any";
   const remoteMatch =
-    profile.remotePref === "any" ||
-    normalize(job.remoteType).includes(profile.remotePref)
+    remotePref === "any" ||
+    normalize(job.remoteType).includes(normalize(remotePref))
       ? 1
       : 0;
 
