@@ -213,13 +213,25 @@ safe to build on — versus what's still pending.
 - Fingerprint SQL recompute must use `convert_to(...) || '\000'::bytea`,
   not `E'\0'` in text
 
-## Phase 6 — Multi-tenant conversion — NOT STARTED
+## Phase 6 — Multi-tenant conversion — IN PROGRESS
 
 Converts the app from single-user local tool to a small multi-user product
 for a closed group (~5 friends), one-time-fee access.
 
-- [ ] Supabase Auth wired into Next.js (login/signup) and Fastify (verify
+- [x] Supabase Auth wired into Next.js (login/signup) and Fastify (verify
       session/JWT on protected routes)
+      - Web: `@supabase/ssr` + `@supabase/supabase-js`; `/login`, `/signup`;
+        middleware redirects unauthenticated `/` → `/login`
+      - API: global `onRequest` `requireSupabaseAuth`; Bearer JWT via
+        `supabase.auth.getUser`; public: `/health`, OPTIONS, Bull Board,
+        `/debug/sentry-test`
+      - Client `apiFetch` attaches `Authorization: Bearer <access_token>`
+      - Env: `SUPABASE_*` + `NEXT_PUBLIC_SUPABASE_*` (also `apps/web/.env.local`)
+      - Verified: real signup user `e80f036c-a6da-468e-9844-dc2cc1e9e683`;
+        login session (token len 828); `GET /applications/review-queue`
+        without auth → `401 {"error":"Unauthorized"}`; with Bearer → `200`
+        queue JSON; browser `GET /` → `307 Location: /login`; `/login` and
+        `/signup` return 200 with forms
 - [ ] Migration: add user_id to applications, matches, generated_documents,
       profiles (jobs table stays shared/global — listings aren't per-user)
 - [ ] Every existing route filtered by authenticated user_id — audit all
@@ -233,6 +245,17 @@ for a closed group (~5 friends), one-time-fee access.
 
 Order matters: auth → data isolation → quotas → deployment → payments.
 Don't add payments before the app is safely multi-tenant and hosted.
+
+### Phase 6 gotchas
+
+- `SUPABASE_URL` must be the project root (`https://xxx.supabase.co`), not
+  `/rest/v1/` — Auth returns "Invalid path" otherwise
+- Supabase "Confirm email" is ON in this project — signup may not return a
+  session until confirmed (disable Confirm email for smoother local UX, or
+  confirm via Admin API)
+- Anon signup hits email rate limits quickly in free tier; use a real inbox
+  or temporarily disable confirm email
+- Next must stay on port 3000; if 3000 is busy it steals 3001 from the API
 
 ## How to start everything
 
