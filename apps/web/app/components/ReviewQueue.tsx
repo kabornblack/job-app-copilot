@@ -74,7 +74,15 @@ export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
     );
 
     if (!response.ok) {
-      const message = await response.text();
+      let message = await response.text();
+      try {
+        const parsed = JSON.parse(message) as { error?: string };
+        if (parsed.error) {
+          message = parsed.error;
+        }
+      } catch {
+        // keep raw body
+      }
       throw new Error(message || "Failed to generate text");
     }
 

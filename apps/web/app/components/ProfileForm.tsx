@@ -103,9 +103,19 @@ export default function ProfileForm({
       });
 
       if (response.status !== 202) {
-        const error = await response.text();
+        let message = await response.text();
+        try {
+          const parsed = JSON.parse(message) as { error?: string };
+          if (parsed.error) {
+            message = parsed.error;
+          }
+        } catch {
+          // keep raw body
+        }
         setStatusTone("error");
-        setStatus(`Search failed: ${error}`);
+        setStatus(
+          response.status === 429 ? message : `Search failed: ${message}`,
+        );
         return;
       }
 

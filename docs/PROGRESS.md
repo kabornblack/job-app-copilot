@@ -246,9 +246,18 @@ for a closed group (~5 friends), one-time-fee access.
         `a1bca142-…` (Alpha); B queue only `bda4a49c-…` (Beta); B PATCH A’s
         applicationId → `404 {"error":"Application not found"}`; A PATCH
         own → `200` status reviewing
-- [ ] Per-user usage quotas (daily search cap, monthly doc-gen cap) to
-      protect shared API keys (Adzuna/Claude/OpenAI) from runaway cost
-      across multiple users
+- [x] Per-user usage quotas (plan-based: trial vs trusted) to protect shared
+      API keys (Adzuna/Claude/OpenAI) from runaway cost across multiple users
+      - Migration `0006_usage_quotas`: `user_settings` (plan default `trial`,
+        `trial_started_at`) + `usage_counters`
+      - trusted: 50 searches/day, 100 doc-gens/month; trial: 2 searches/day,
+        10 searches total + 5 doc-gens total in 14-day window
+      - `POST /jobs/search` + generate routes + cron consume quota; `429`
+        `{ code: QUOTA_EXCEEDED, … }` with plan-specific messages
+      - Admin: `scripts/set-user-plan.ts <userId> trusted|trial`
+      - Verified: trusted 3 consumes + HTTP search `202` past trial daily;
+        trial 3rd search → `429` "Daily search limit reached (2/day).";
+        trial at 10 total → `429` "Trial search limit reached (10 total)."
 - [ ] Deploy to Railway or Render — real hosting, Postgres + Redis + API +
       worker + web, before payments go live
 - [ ] Stripe one-time payment gating access (not subscription for v1)
