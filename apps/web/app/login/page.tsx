@@ -4,6 +4,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { createClient } from "../../lib/supabase/client";
+import AuthCard from "../components/AuthCard";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -26,7 +31,7 @@ export default function LoginPage() {
         setError(signInError.message);
         return;
       }
-      router.replace("/");
+      router.replace("/dashboard");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -36,58 +41,51 @@ export default function LoginPage() {
   };
 
   return (
-    <main
-      style={{
-        padding: "2rem",
-        fontFamily: "sans-serif",
-        background: "#f5f7fb",
-        minHeight: "100vh",
-      }}
+    <AuthCard
+      title="Log in"
+      description="Welcome back — find and track your applications."
+      footer={
+        <>
+          No account?{" "}
+          <Link href="/signup" className="font-medium text-primary hover:underline">
+            Sign up
+          </Link>
+        </>
+      }
     >
-      <div style={{ maxWidth: 420, margin: "4rem auto" }}>
-        <h1>Log in</h1>
-        <p style={{ color: "#555" }}>Job Application Copilot</p>
-        <form
-          onSubmit={handleSubmit}
-          style={{
-            display: "grid",
-            gap: "0.75rem",
-            marginTop: "1.5rem",
-            padding: "1.25rem",
-            background: "#fff",
-            border: "1px solid #ddd",
-          }}
-        >
-          <label style={{ display: "grid", gap: "0.35rem" }}>
-            Email
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={{ padding: "0.5rem" }}
-            />
-          </label>
-          <label style={{ display: "grid", gap: "0.35rem" }}>
-            Password
-            <input
-              type="password"
-              required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{ padding: "0.5rem" }}
-            />
-          </label>
-          {error ? <p style={{ color: "#a40", margin: 0 }}>{error}</p> : null}
-          <button type="submit" disabled={submitting} style={{ padding: "0.6rem" }}>
-            {submitting ? "Logging in…" : "Log in"}
-          </button>
-        </form>
-        <p style={{ marginTop: "1rem" }}>
-          No account? <Link href="/signup">Sign up</Link>
-        </p>
-      </div>
-    </main>
+      <form onSubmit={handleSubmit} className="grid gap-4">
+        <div className="grid gap-1.5">
+          <Label htmlFor="email">Email</Label>
+          <Input
+            id="email"
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+          />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="password">Password</Label>
+          <Input
+            id="password"
+            type="password"
+            required
+            minLength={6}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+          />
+        </div>
+        {error ? (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        <Button type="submit" disabled={submitting} className="w-full">
+          {submitting ? "Logging in…" : "Log in"}
+        </Button>
+      </form>
+    </AuthCard>
   );
 }

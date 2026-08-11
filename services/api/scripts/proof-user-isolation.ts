@@ -40,7 +40,7 @@ if (!password) {
 const stamp = Date.now();
 
 async function createConfirmedUser(label: string) {
-  const email = `copilot.iso.${label}.${stamp}@gmail.com`;
+  const email = `copilot.iso.${label}.${stamp}@example.com`;
   const admin = createClient(supabaseUrl!, serviceRoleKey!, {
     auth: { persistSession: false, autoRefreshToken: false },
   });

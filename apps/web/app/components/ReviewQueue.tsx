@@ -1,14 +1,18 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useMemo, useState } from "react";
 import { apiFetch } from "../../lib/api";
 import JobCard, {
   type GeneratedDocumentResult,
   type JobSummary,
 } from "./JobCard";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type ReviewQueueProps = {
   apiUrl: string;
-  refreshKey: number;
+  initialJobs: JobSummary[];
 };
 
 type QueueTab = "to_review" | "applied" | "archived";
@@ -25,33 +29,14 @@ const TAB_LABELS: Record<QueueTab, string> = {
   archived: "Archived",
 };
 
-export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
-  const [jobs, setJobs] = useState<JobSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+/**
+ * Renders the tabbed queue. Fetching + loading/error states now live in the
+ * parent page (app/(app)/page.tsx) since it also needs the same data to
+ * decide the /profile redirect — this component just owns the list itself.
+ */
+export default function ReviewQueue({ apiUrl, initialJobs }: ReviewQueueProps) {
+  const [jobs, setJobs] = useState<JobSummary[]>(initialJobs);
   const [activeTab, setActiveTab] = useState<QueueTab>("to_review");
-
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-    apiFetch(`/applications/review-queue`)
-      .then(async (response) => {
-        if (!response.ok) {
-          const message = await response.text();
-          throw new Error(message || "Failed to load review queue");
-        }
-        return response.json();
-      })
-      .then((payload) => {
-        setJobs(payload.queue ?? []);
-      })
-      .catch((err) => {
-        setError(err.message ?? "Unable to load review queue");
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, [apiUrl, refreshKey]);
 
   const updateJob = (applicationId: string, update: Partial<JobSummary>) => {
     setJobs((previous) =>
@@ -74,7 +59,15 @@ export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
     );
 
     if (!response.ok) {
-      const message = await response.text();
+      let message = await response.text();
+      try {
+        const parsed = JSON.parse(message) as { error?: string };
+        if (parsed.error) {
+          message = parsed.error;
+        }
+      } catch {
+        // keep raw body
+      }
       throw new Error(message || "Failed to generate text");
     }
 
@@ -133,58 +126,54 @@ export default function ReviewQueue({ apiUrl, refreshKey }: ReviewQueueProps) {
     TAB_STATUSES[activeTab].has(job.status),
   );
 
-  return (
-    <section>
-      <h2>Review queue</h2>
-      <div
-        style={{
-          display: "flex",
-          gap: "0.5rem",
-          flexWrap: "wrap",
-          marginBottom: "1rem",
-        }}
-      >
-        {(Object.keys(TAB_LABELS) as QueueTab[]).map((tab) => {
-          const selected = activeTab === tab;
-          return (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setActiveTab(tab)}
-              style={{
-                padding: "0.55rem 0.9rem",
-                border: selected ? "1px solid #2d3748" : "1px solid #cbd5e0",
-                background: selected ? "#2d3748" : "#fff",
-                color: selected ? "#fff" : "#1a202c",
-                borderRadius: 6,
-              }}
-            >
-              {TAB_LABELS[tab]} ({counts[tab]})
-            </button>
-          );
-        })}
+  if (jobs.length === 0) {
+    return (
+      <div className="space-y-1">
+        <h1 className="text-xl font-semibold tracking-tight">Review queue</h1>
+        <Card className="mt-3">
+          <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+            <p className="text-sm text-muted-foreground">
+              No jobs in the review queue yet. Set up your profile and run a
+              search to get started.
+            </p>
+            <Button asChild size="sm">
+              <Link href="/profile">Go to profile</Link>
+            </Button>
+          </CardContent>
+        </Card>
       </div>
-      {loading ? (
-        <p>Loading review queue…</p>
-      ) : error ? (
-        <p style={{ color: "red" }}>{error}</p>
-      ) : jobs.length === 0 ? (
-        <p>
-          No jobs in the review queue yet. Submit a profile to start a search.
-        </p>
-      ) : filteredJobs.length === 0 ? (
-        <p>No jobs in “{TAB_LABELS[activeTab]}” right now.</p>
-      ) : (
-        filteredJobs.map((job) => (
-          <JobCard
-            key={job.applicationId}
-            job={job}
-            apiUrl={apiUrl}
-            onGenerate={handleGenerate}
-            onStatusChange={handleStatusChange}
-          />
-        ))
-      )}
-    </section>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <h1 className="text-xl font-semibold tracking-tight">Review queue</h1>
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as QueueTab)}>
+        <TabsList>
+          {(Object.keys(TAB_LABELS) as QueueTab[]).map((tab) => (
+            <TabsTrigger key={tab} value={tab}>
+              {TAB_LABELS[tab]} ({counts[tab]})
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        <TabsContent value={activeTab} className="mt-3 space-y-3">
+          {filteredJobs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No jobs in &ldquo;{TAB_LABELS[activeTab]}&rdquo; right now.
+            </p>
+          ) : (
+            filteredJobs.map((job) => (
+              <JobCard
+                key={job.applicationId}
+                job={job}
+                apiUrl={apiUrl}
+                onGenerate={handleGenerate}
+                onStatusChange={handleStatusChange}
+              />
+            ))
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
   );
 }

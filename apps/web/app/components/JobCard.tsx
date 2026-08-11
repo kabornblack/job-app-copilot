@@ -2,6 +2,26 @@
 import { useState } from "react";
 import GeneratedTextPanel from "./GeneratedTextPanel";
 import type { TipTapDoc } from "./DocumentEditor";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export type JobSummary = {
   applicationId: string;
@@ -36,6 +56,31 @@ const POST_APPLICATION_STATUSES = [
   "withdrawn",
 ] as const;
 
+const STATUS_LABELS: Record<string, string> = {
+  found: "Found",
+  reviewing: "Shortlisted",
+  tailored: "Tailored",
+  applied: "Applied",
+  interviewing: "Interviewing",
+  offer: "Offer",
+  rejected: "Rejected",
+  withdrawn: "Withdrawn",
+};
+
+/** Score tiers for the review-queue badge — 0-39 weak, 40-69 possible, 70-100 strong. */
+function scoreTier(score: number): {
+  variant: "destructive" | "warning" | "success";
+  label: string;
+} {
+  if (score >= 70) {
+    return { variant: "success", label: "Strong match" };
+  }
+  if (score >= 40) {
+    return { variant: "warning", label: "Possible match" };
+  }
+  return { variant: "destructive", label: "Weak match" };
+}
+
 type JobCardProps = {
   job: JobSummary;
   apiUrl: string;
@@ -45,31 +90,6 @@ type JobCardProps = {
   ) => Promise<GeneratedDocumentResult | null>;
   onStatusChange: (applicationId: string, status: string) => Promise<void>;
 };
-
-function statusBadgeStyle(status: string): {
-  display: "inline-block";
-  padding: string;
-  borderRadius: number;
-  fontSize: string;
-  fontWeight: number;
-  letterSpacing: string;
-  textTransform: "uppercase";
-  background: string;
-  color: string;
-} {
-  const postApplied = !PRE_APPLICATION_STATUSES.has(status);
-  return {
-    display: "inline-block",
-    padding: "0.2rem 0.55rem",
-    borderRadius: 4,
-    fontSize: "0.75rem",
-    fontWeight: 700,
-    letterSpacing: "0.04em",
-    textTransform: "uppercase",
-    background: postApplied ? "#4a5568" : "#e2e8f0",
-    color: postApplied ? "#fff" : "#1a202c",
-  };
-}
 
 export default function JobCard({
   job,
@@ -81,6 +101,9 @@ export default function JobCard({
     "cv" | "cover_letter" | null
   >(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [skipDialogOpen, setSkipDialogOpen] = useState(false);
   const [generatedCV, setGeneratedCV] = useState<string | null>(
     job.generatedCV ?? null,
   );
@@ -97,9 +120,11 @@ export default function JobCard({
   const hasDocuments = Boolean(generatedCVJson || generatedCoverLetterJson);
   const isPreApplication = PRE_APPLICATION_STATUSES.has(status);
   const isPostApplication = !isPreApplication;
+  const tier = scoreTier(job.score);
 
   const handleGenerate = async (docType: "cv" | "cover_letter") => {
     setLoadingGenerate(docType);
+    setGenerateError(null);
     try {
       const result = await onGenerate(job.applicationId, docType);
       if (result) {
@@ -111,6 +136,13 @@ export default function JobCard({
           setGeneratedCoverLetterJson(result.contentJson);
         }
       }
+    } catch (error) {
+      const label = docType === "cv" ? "CV" : "cover letter";
+      setGenerateError(
+        error instanceof Error
+          ? error.message
+          : `Failed to generate ${label}. Try again.`,
+      );
     } finally {
       setLoadingGenerate(null);
     }
@@ -121,162 +153,200 @@ export default function JobCard({
       return;
     }
     setLoadingStatus(true);
+    setStatusError(null);
     try {
       await onStatusChange(job.applicationId, newStatus);
       setStatus(newStatus);
+    } catch (error) {
+      setStatusError(
+        error instanceof Error ? error.message : "Failed to update status.",
+      );
     } finally {
       setLoadingStatus(false);
     }
   };
 
+  const handleSkipConfirm = async () => {
+    await handleStatusUpdate("rejected");
+    setSkipDialogOpen(false);
+  };
+
   return (
-    <article
-      style={{
-        border: isPostApplication ? "1px solid #a0aec0" : "1px solid #ddd",
-        borderLeft: isPostApplication
-          ? "4px solid #4a5568"
-          : "1px solid #ddd",
-        borderRadius: 12,
-        padding: "1rem",
-        marginBottom: "1rem",
-        background: isPostApplication ? "#edf2f7" : "white",
-        opacity: isPostApplication ? 0.92 : 1,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: "1rem",
-          flexWrap: "wrap",
-        }}
-      >
-        <div>
-          <h3 style={{ margin: "0 0 0.25rem" }}>{job.title}</h3>
-          <p style={{ margin: 0, color: "#555" }}>
-            {job.company} · {job.location ?? "Location unknown"} ·{" "}
-            {job.remoteType ?? "Remote info unknown"}
-          </p>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <span style={statusBadgeStyle(status)}>{status}</span>
-          <div style={{ marginTop: "0.35rem" }}>
-            <strong>Score:</strong> {job.score.toFixed(1)}
+    <Card size="sm" className={isPostApplication ? "bg-muted/40" : undefined}>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold leading-snug">
+              {job.title}
+            </h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {job.company} · {job.location ?? "Location unknown"} ·{" "}
+              {job.remoteType ?? "Remote info unknown"}
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            <Badge variant={isPostApplication ? "secondary" : "outline"}>
+              {STATUS_LABELS[status] ?? status}
+            </Badge>
+            <Badge variant={tier.variant}>
+              {job.score.toFixed(0)} · {tier.label}
+            </Badge>
           </div>
         </div>
-      </div>
-      <p style={{ margin: "0.75rem 0" }}>
-        <strong>Why match:</strong> {job.explanation}
-      </p>
-      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-        <a
-          href={job.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            padding: "0.75rem 1rem",
-            border: "1px solid #2b6cb0",
-            background: "#ebf8ff",
-            color: "#2b6cb0",
-            textDecoration: "none",
-            borderRadius: 4,
-          }}
-        >
-          Apply on {job.company}&apos;s site
-        </a>
-        {isPreApplication ? (
-          <>
-            <button
-              type="button"
-              onClick={() => handleGenerate("cv")}
-              disabled={loadingGenerate !== null}
-              style={{ padding: "0.75rem 1rem" }}
-            >
-              {loadingGenerate === "cv"
-                ? "Generating CV…"
-                : generatedCVJson
-                  ? "Regenerate CV"
-                  : "Generate CV"}
-            </button>
-            <button
-              type="button"
-              onClick={() => handleGenerate("cover_letter")}
-              disabled={loadingGenerate !== null}
-              style={{ padding: "0.75rem 1rem" }}
-            >
-              {loadingGenerate === "cover_letter"
-                ? "Generating cover letter…"
-                : generatedCoverLetterJson
-                  ? "Regenerate Cover Letter"
-                  : "Generate Cover Letter"}
-            </button>
-            <button
-              type="button"
-              onClick={() => handleStatusUpdate("reviewing")}
-              disabled={loadingStatus}
-              style={{ padding: "0.75rem 1rem" }}
-            >
-              Shortlist
-            </button>
-            <button
-              type="button"
-              onClick={() => handleStatusUpdate("rejected")}
-              disabled={loadingStatus}
-              style={{ padding: "0.75rem 1rem", background: "#ffecec" }}
-            >
-              Skip
-            </button>
-            {hasDocuments ? (
-              <button
+
+        <p className="text-sm">
+          <span className="font-medium">Why match: </span>
+          {job.explanation}
+        </p>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild variant="outline" size="sm">
+            <a href={job.url} target="_blank" rel="noopener noreferrer">
+              Apply on {job.company}&apos;s site
+            </a>
+          </Button>
+
+          {isPreApplication ? (
+            <>
+              <Button
                 type="button"
-                onClick={() => handleStatusUpdate("applied")}
-                disabled={loadingStatus}
-                style={{
-                  padding: "0.75rem 1rem",
-                  background: "#276749",
-                  color: "white",
-                  border: "none",
-                }}
+                variant="secondary"
+                size="sm"
+                onClick={() => handleGenerate("cv")}
+                disabled={loadingGenerate !== null}
               >
-                Mark as applied
-              </button>
-            ) : null}
-          </>
-        ) : (
-          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span>Update status</span>
-            <select
-              value={status}
-              disabled={loadingStatus}
-              onChange={(event) => handleStatusUpdate(event.target.value)}
-              style={{ padding: "0.6rem 0.75rem" }}
-            >
-              {POST_APPLICATION_STATUSES.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-      </div>
-      <GeneratedTextPanel
-        applicationId={job.applicationId}
-        apiUrl={apiUrl}
-        generatedCV={generatedCV}
-        generatedCoverLetter={generatedCoverLetter}
-        generatedCVJson={generatedCVJson}
-        generatedCoverLetterJson={generatedCoverLetterJson}
-        onDocumentSaved={(docType, payload) => {
-          if (docType === "cv") {
-            setGeneratedCV(payload.content);
-            setGeneratedCVJson(payload.contentJson);
-          } else {
-            setGeneratedCoverLetter(payload.content);
-            setGeneratedCoverLetterJson(payload.contentJson);
-          }
-        }}
-      />
-    </article>
+                {loadingGenerate === "cv"
+                  ? "Generating CV…"
+                  : generatedCVJson
+                    ? "Regenerate CV"
+                    : "Generate CV"}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => handleGenerate("cover_letter")}
+                disabled={loadingGenerate !== null}
+              >
+                {loadingGenerate === "cover_letter"
+                  ? "Generating cover letter…"
+                  : generatedCoverLetterJson
+                    ? "Regenerate cover letter"
+                    : "Generate cover letter"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => handleStatusUpdate("reviewing")}
+                disabled={loadingStatus}
+              >
+                Shortlist
+              </Button>
+              <Dialog open={skipDialogOpen} onOpenChange={setSkipDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={loadingStatus}
+                  >
+                    Skip
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Skip this job?</DialogTitle>
+                    <DialogDescription>
+                      This marks &quot;{job.title}&quot; as rejected and moves
+                      it to the Archived tab. You can change its status back
+                      later if you change your mind.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setSkipDialogOpen(false)}
+                      disabled={loadingStatus}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      onClick={handleSkipConfirm}
+                      disabled={loadingStatus}
+                    >
+                      {loadingStatus ? "Skipping…" : "Skip job"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+              {hasDocuments ? (
+                <Button
+                  type="button"
+                  variant="success"
+                  size="sm"
+                  onClick={() => handleStatusUpdate("applied")}
+                  disabled={loadingStatus}
+                >
+                  Mark as applied
+                </Button>
+              ) : null}
+            </>
+          ) : (
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Status</span>
+              <Select
+                value={status}
+                onValueChange={handleStatusUpdate}
+                disabled={loadingStatus}
+              >
+                <SelectTrigger size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {POST_APPLICATION_STATUSES.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {STATUS_LABELS[value]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+          )}
+        </div>
+
+        {generateError ? (
+          <Alert variant="destructive">
+            <AlertDescription>{generateError}</AlertDescription>
+          </Alert>
+        ) : null}
+        {statusError ? (
+          <Alert variant="destructive">
+            <AlertDescription>{statusError}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        <GeneratedTextPanel
+          applicationId={job.applicationId}
+          apiUrl={apiUrl}
+          generatedCV={generatedCV}
+          generatedCoverLetter={generatedCoverLetter}
+          generatedCVJson={generatedCVJson}
+          generatedCoverLetterJson={generatedCoverLetterJson}
+          onDocumentSaved={(docType, payload) => {
+            if (docType === "cv") {
+              setGeneratedCV(payload.content);
+              setGeneratedCVJson(payload.contentJson);
+            } else {
+              setGeneratedCoverLetter(payload.content);
+              setGeneratedCoverLetterJson(payload.contentJson);
+            }
+          }}
+        />
+      </CardContent>
+    </Card>
   );
 }

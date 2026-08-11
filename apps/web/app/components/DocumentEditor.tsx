@@ -4,6 +4,10 @@ import { useEditor, EditorContent, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../../lib/api";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 
 /** TipTap document root — uses TipTap's JSONContent (not unknown[]). */
 export type TipTapDoc = JSONContent & {
@@ -29,6 +33,14 @@ type DocumentEditorProps = {
 
 type EditorMode = "write" | "preview";
 
+const toolbarButtons = [
+  { key: "h1", label: "H1" },
+  { key: "h2", label: "H2" },
+  { key: "bold", label: "Bold" },
+  { key: "italic", label: "Italic" },
+  { key: "bullets", label: "Bullets" },
+] as const;
+
 export default function DocumentEditor({
   title,
   applicationId,
@@ -38,6 +50,7 @@ export default function DocumentEditor({
 }: DocumentEditorProps) {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [mode, setMode] = useState<EditorMode>("write");
   const [downloading, setDownloading] = useState<"docx" | "pdf" | null>(null);
@@ -63,6 +76,7 @@ export default function DocumentEditor({
       }
       setDirty(true);
       setStatus(null);
+      setError(null);
     },
   });
 
@@ -96,6 +110,7 @@ export default function DocumentEditor({
     }
     setSaving(true);
     setStatus(null);
+    setError(null);
     try {
       const contentJson = asTipTapDoc(editor.getJSON());
       const response = await apiFetch(
@@ -119,8 +134,8 @@ export default function DocumentEditor({
         content: saved.content ?? "",
         contentJson: asTipTapDoc(saved.contentJson ?? contentJson),
       });
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Save failed");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
     } finally {
       setSaving(false);
     }
@@ -129,6 +144,7 @@ export default function DocumentEditor({
   const handleDownload = async (format: "docx" | "pdf") => {
     setDownloading(format);
     setStatus(null);
+    setError(null);
     try {
       const response = await apiFetch(
         `/applications/${applicationId}/documents/${docType}/download?format=${format}`,
@@ -145,8 +161,8 @@ export default function DocumentEditor({
       anchor.click();
       URL.revokeObjectURL(objectUrl);
       setStatus(`Downloaded ${format.toUpperCase()}.`);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Download failed");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to download ${format}`);
     } finally {
       setDownloading(null);
     }
@@ -156,111 +172,70 @@ export default function DocumentEditor({
     return null;
   }
 
-  const tabButtonStyle = (active: boolean) => ({
-    padding: "0.4rem 0.85rem",
-    border: active ? "1px solid #2d3748" : "1px solid #cbd5e0",
-    borderBottom: active ? "1px solid #fff" : "1px solid #cbd5e0",
-    background: active ? "#fff" : "#edf2f7",
-    color: "#1a202c",
-    borderRadius: "6px 6px 0 0",
-    marginBottom: -1,
-    fontWeight: active ? 700 : 500,
-    cursor: "pointer" as const,
-  });
+  const isToolbarActive = (key: (typeof toolbarButtons)[number]["key"]) => {
+    switch (key) {
+      case "h1":
+        return editor.isActive("heading", { level: 1 });
+      case "h2":
+        return editor.isActive("heading", { level: 2 });
+      case "bold":
+        return editor.isActive("bold");
+      case "italic":
+        return editor.isActive("italic");
+      case "bullets":
+        return editor.isActive("bulletList");
+    }
+  };
+
+  const runToolbarAction = (key: (typeof toolbarButtons)[number]["key"]) => {
+    switch (key) {
+      case "h1":
+        editor.chain().focus().toggleHeading({ level: 1 }).run();
+        return;
+      case "h2":
+        editor.chain().focus().toggleHeading({ level: 2 }).run();
+        return;
+      case "bold":
+        editor.chain().focus().toggleBold().run();
+        return;
+      case "italic":
+        editor.chain().focus().toggleItalic().run();
+        return;
+      case "bullets":
+        editor.chain().focus().toggleBulletList().run();
+    }
+  };
 
   return (
-    <section style={{ marginBottom: "1.25rem" }}>
-      <h5 style={{ marginBottom: "0.5rem" }}>{title}</h5>
-      <div
-        style={{
-          display: "flex",
-          gap: "0.25rem",
-          borderBottom: "1px solid #cbd5e0",
-          marginBottom: "0.75rem",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => setMode("write")}
-          style={tabButtonStyle(mode === "write")}
-        >
-          Write
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode("preview")}
-          style={tabButtonStyle(mode === "preview")}
-        >
-          Preview
-        </button>
-      </div>
+    <section className="space-y-2">
+      <h5 className="text-sm font-semibold">{title}</h5>
+
+      <Tabs value={mode} onValueChange={(value) => setMode(value as EditorMode)}>
+        <TabsList>
+          <TabsTrigger value="write">Write</TabsTrigger>
+          <TabsTrigger value="preview">Preview</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {mode === "write" ? (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "0.4rem",
-            marginBottom: "0.5rem",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() =>
-              editor.chain().focus().toggleHeading({ level: 1 }).run()
-            }
-            style={{
-              padding: "0.35rem 0.6rem",
-              fontWeight: editor.isActive("heading", { level: 1 }) ? 700 : 400,
-            }}
-          >
-            H1
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              editor.chain().focus().toggleHeading({ level: 2 }).run()
-            }
-            style={{
-              padding: "0.35rem 0.6rem",
-              fontWeight: editor.isActive("heading", { level: 2 }) ? 700 : 400,
-            }}
-          >
-            H2
-          </button>
-          <button
-            type="button"
-            onClick={() => editor.chain().focus().toggleBold().run()}
-            style={{
-              padding: "0.35rem 0.6rem",
-              fontWeight: editor.isActive("bold") ? 700 : 400,
-            }}
-          >
-            Bold
-          </button>
-          <button
-            type="button"
-            onClick={() => editor.chain().focus().toggleItalic().run()}
-            style={{
-              padding: "0.35rem 0.6rem",
-              fontStyle: editor.isActive("italic") ? "italic" : "normal",
-            }}
-          >
-            Italic
-          </button>
-          <button
-            type="button"
-            onClick={() => editor.chain().focus().toggleBulletList().run()}
-            style={{
-              padding: "0.35rem 0.6rem",
-              fontWeight: editor.isActive("bulletList") ? 700 : 400,
-            }}
-          >
-            Bullets
-          </button>
+        <div className="flex flex-wrap gap-1">
+          {toolbarButtons.map((button) => (
+            <Button
+              key={button.key}
+              type="button"
+              variant={isToolbarActive(button.key) ? "secondary" : "outline"}
+              size="sm"
+              onClick={() => runToolbarAction(button.key)}
+            >
+              {button.label}
+            </Button>
+          ))}
         </div>
       ) : null}
 
+      {/* documents.ts: DOCX Calibri + 0.5" margins; PDF Helvetica + ~54pt.
+          The preview styles below intentionally mimic the exported file's
+          own typography, not the app theme — that's the point of Preview. */}
       <style>{`
         .doc-editor-write .ProseMirror { outline: none; min-height: 140px; }
         .doc-editor-write .ProseMirror h1 { font-size: 1.4rem; margin: 0.6rem 0 0.35rem; }
@@ -306,97 +281,79 @@ export default function DocumentEditor({
       `}</style>
 
       <div
-        style={
+        className={
           mode === "preview"
-            ? {
-                background: "#e8e8e8",
-                padding: "1.25rem 1rem",
-                marginBottom: "0.75rem",
-                borderRadius: 6,
-                border: "1px solid #c5c5c5",
-              }
-            : { marginBottom: "0.75rem" }
+            ? "rounded-md border bg-muted/60 px-3 py-4"
+            : undefined
         }
       >
-        {/* documents.ts: DOCX Calibri + 0.5" margins; PDF Helvetica + ~54pt */}
         <div
-          className={
-            mode === "write" ? "doc-editor-write" : "doc-editor-preview"
-          }
-          style={
+          className={cn(
+            mode === "write" ? "doc-editor-write" : "doc-editor-preview",
             mode === "write"
+              ? "min-h-[150px] rounded-md border bg-background p-2.5"
+              : "mx-auto min-h-[520px] max-w-[680px] bg-white px-[54px] py-[54px] text-[#111111] shadow-[0_1px_4px_rgba(0,0,0,0.18),0_8px_24px_rgba(0,0,0,0.08)]",
+          )}
+          style={
+            mode === "preview"
               ? {
-                  border: "1px solid #ccc",
-                  borderRadius: 6,
-                  padding: "0.75rem",
-                  minHeight: 180,
-                  background: "white",
-                }
-              : {
-                  maxWidth: 680,
-                  margin: "0 auto",
-                  background: "#ffffff",
-                  boxShadow:
-                    "0 1px 4px rgba(0,0,0,0.18), 0 8px 24px rgba(0,0,0,0.08)",
-                  padding: "54px 54px",
-                  minHeight: 520,
-                  color: "#111111",
-                  fontFamily:
-                    'Calibri, "Segoe UI", Helvetica, Arial, sans-serif',
+                  fontFamily: 'Calibri, "Segoe UI", Helvetica, Arial, sans-serif',
                   fontSize: 11,
                   lineHeight: 1.45,
                 }
+              : undefined
           }
         >
-          <div
-            aria-hidden={mode !== "preview"}
-            style={{
-              display: mode === "preview" ? "block" : "none",
-              fontFamily: 'Calibri, "Segoe UI", Helvetica, Arial, sans-serif',
-              fontWeight: 700,
-              fontSize: 16,
-              color: "#111111",
-              marginBottom: "0.9rem",
-            }}
-          >
-            {title}
-          </div>
+          {mode === "preview" ? (
+            <div
+              style={{
+                fontFamily: 'Calibri, "Segoe UI", Helvetica, Arial, sans-serif',
+                fontWeight: 700,
+                fontSize: 16,
+                color: "#111111",
+                marginBottom: "0.9rem",
+              }}
+            >
+              {title}
+            </div>
+          ) : null}
           <EditorContent editor={editor} />
         </div>
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving || !dirty}
-          style={{ padding: "0.5rem 0.9rem" }}
-        >
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" onClick={handleSave} disabled={saving || !dirty} size="sm">
           {saving ? "Saving…" : "Save"}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           disabled={downloading !== null}
           onClick={() => void handleDownload("docx")}
-          style={{ padding: "0.5rem 0.9rem" }}
         >
           {downloading === "docx" ? "Downloading…" : "Download DOCX"}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           disabled={downloading !== null}
           onClick={() => void handleDownload("pdf")}
-          style={{ padding: "0.5rem 0.9rem" }}
         >
           {downloading === "pdf" ? "Downloading…" : "Download PDF"}
-        </button>
+        </Button>
+        {status ? (
+          <span className="text-sm text-success">{status}</span>
+        ) : dirty ? (
+          <span className="text-sm text-warning">Unsaved changes</span>
+        ) : null}
       </div>
-      {status ? (
-        <p style={{ margin: "0.5rem 0 0", color: dirty ? "#a40" : "#285" }}>
-          {status}
-        </p>
-      ) : dirty ? (
-        <p style={{ margin: "0.5rem 0 0", color: "#a40" }}>Unsaved changes</p>
+
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       ) : null}
     </section>
   );

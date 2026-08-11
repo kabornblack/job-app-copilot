@@ -4,7 +4,14 @@ import { access } from "fs/promises";
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { requireSupabaseAuth } from "./lib/auth";
+import { getSupabaseAnon, requireSupabaseAuth } from "./lib/auth";
+import { validatePassword } from "./lib/password";
+import {
+  consumeDocGenQuota,
+  consumeSearchQuota,
+  ensureUserSettings,
+  isQuotaExceededError,
+} from "./lib/quota";
 import { initSentry, captureException, flushSentry } from "./lib/sentry";
 import { db } from "./db/client";
 import {
@@ -47,6 +54,48 @@ server.addHook("onRequest", requireSupabaseAuth);
 
 server.get("/health", async () => ({ status: "ok" }));
 
+const signupSchema = z.object({
+  email: z.string().email(),
+  password: z.string(),
+});
+
+server.post("/auth/signup", async (request, reply) => {
+  const body = signupSchema.parse(request.body);
+  const passwordCheck = validatePassword(body.password);
+  if (!passwordCheck.ok) {
+    return reply.status(400).send({
+      error: "Password does not meet requirements",
+      details: passwordCheck.errors,
+      strength: passwordCheck.strength,
+    });
+  }
+
+  const supabase = getSupabaseAnon();
+  const { data, error } = await supabase.auth.signUp({
+    email: body.email.trim(),
+    password: body.password,
+  });
+  if (error) {
+    return reply.status(400).send({ error: error.message });
+  }
+
+  if (data.user?.id) {
+    await ensureUserSettings(data.user.id);
+  }
+
+  return reply.status(201).send({
+    user: data.user
+      ? { id: data.user.id, email: data.user.email ?? null }
+      : null,
+    session: data.session
+      ? {
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        }
+      : null,
+  });
+});
+
 if ((process.env.SENTRY_ENVIRONMENT ?? "development") === "development") {
   server.get("/debug/sentry-test", async () => {
     throw new Error(
@@ -56,6 +105,10 @@ if ((process.env.SENTRY_ENVIRONMENT ?? "development") === "development") {
 }
 
 server.setErrorHandler(async (error, request, reply) => {
+  if (isQuotaExceededError(error)) {
+    return reply.status(429).send(error.payload);
+  }
+
   const statusCode =
     typeof error === "object" &&
     error !== null &&
@@ -140,6 +193,8 @@ server.post("/jobs/search", async (request, reply) => {
   const body = searchBodySchema.parse(request.body);
 
   try {
+    await consumeSearchQuota(userId);
+
     const { profile, profileReused } = await resolveActiveProfile(
       body.profile,
       userId,
@@ -179,6 +234,9 @@ server.post("/jobs/search", async (request, reply) => {
       status: run.status,
     });
   } catch (error) {
+    if (isQuotaExceededError(error)) {
+      return reply.status(429).send(error.payload);
+    }
     const message =
       error instanceof Error ? error.message : "Failed to start job search";
     if (message === "Failed to create profile") {
@@ -355,6 +413,15 @@ server.post("/applications/:applicationId/generate", async (request, reply) => {
     .parse(request.params);
   const { type } = generateBodySchema.parse(request.body);
 
+  try {
+    await consumeDocGenQuota(userId);
+  } catch (error) {
+    if (isQuotaExceededError(error)) {
+      return reply.status(429).send(error.payload);
+    }
+    throw error;
+  }
+
   const generated = await generateForApplication(applicationId, type, userId);
 
   if (!generated) {
@@ -385,6 +452,15 @@ server.post("/jobs/:jobId/generate", async (request, reply) => {
 
   if (!application) {
     return reply.status(404).send({ error: "Application not found" });
+  }
+
+  try {
+    await consumeDocGenQuota(userId);
+  } catch (error) {
+    if (isQuotaExceededError(error)) {
+      return reply.status(429).send(error.payload);
+    }
+    throw error;
   }
 
   const generated = await generateForApplication(application.id, type, userId);

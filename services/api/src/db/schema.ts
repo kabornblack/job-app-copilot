@@ -4,6 +4,7 @@ import {
   pgTable,
   text,
   timestamp,
+  date,
   uuid,
   boolean,
   integer,
@@ -13,6 +14,7 @@ import {
   unique,
   index,
   uniqueIndex,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 export const applicationStatus = pgEnum("application_status", [
@@ -225,5 +227,39 @@ export const searchRuns = pgTable(
   },
   (table) => ({
     userIdIdx: index("search_runs_user_id_idx").on(table.userId),
+  }),
+);
+
+export const userPlanEnum = ["trial", "trusted"] as const;
+export type UserPlan = (typeof userPlanEnum)[number];
+
+export const userSettings = pgTable("user_settings", {
+  userId: uuid("user_id").primaryKey(),
+  plan: text("plan").notNull().default("trial"),
+  trialStartedAt: timestamp("trial_started_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const usageCounters = pgTable(
+  "usage_counters",
+  {
+    userId: uuid("user_id").notNull(),
+    metric: text("metric").notNull(),
+    periodStart: date("period_start", { mode: "date" }).notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (table) => ({
+    pk: primaryKey({
+      name: "usage_counters_pkey",
+      columns: [table.userId, table.metric, table.periodStart],
+    }),
+    userIdIdx: index("usage_counters_user_id_idx").on(table.userId),
   }),
 );

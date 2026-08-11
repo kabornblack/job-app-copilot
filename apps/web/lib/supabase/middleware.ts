@@ -33,18 +33,22 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  const isAuthPage = path === "/login" || path === "/signup";
+  // "/" is the public landing page — visible to logged-out visitors, but a
+  // logged-in user shouldn't land there, so it's public *and* one of the
+  // pages a signed-in user gets redirected away from, same as /login and
+  // /signup.
+  const isPublicPath = path === "/" || path === "/login" || path === "/signup";
 
-  if (!user && !isAuthPage) {
+  if (!user && !isPublicPath) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     redirectUrl.search = "";
     return NextResponse.redirect(redirectUrl);
   }
 
-  if (user && isAuthPage) {
+  if (user && isPublicPath) {
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/";
+    redirectUrl.pathname = "/dashboard";
     redirectUrl.search = "";
     return NextResponse.redirect(redirectUrl);
   }

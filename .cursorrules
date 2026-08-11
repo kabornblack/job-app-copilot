@@ -77,3 +77,20 @@ wasted sessions already. Slow and confirmed beats fast and broken.
 ## Debug output
 
 When showing proof of a test (curl output, query results), paste it directly in your response. Do NOT redirect output to a file on disk unless explicitly asked to save a file. Scratch files left in the working directory get accidentally committed.
+
+## Test / proof email addresses
+
+NEVER invent fake test emails on real-looking consumer domains (gmail.com,
+outlook.com, hotmail.com, yahoo.com, icloud.com, proton.me, etc.). Those
+addresses get confirmation mail that bounces and can get the Supabase
+project's email sending restricted.
+
+For throwaway Auth users in scripts, proofs, or agent-run tests, use ONE of:
+1. `admin.createUser({ email, password, email_confirm: true })` so no
+   confirmation email is sent, and/or
+2. An RFC 2606 reserved domain that must not be delivered — prefer
+   `@example.com` (also fine: `.test`, `.invalid`, `.localhost`).
+
+Do not call anon `signUp` for throwaway accounts when Confirm-email is ON
+unless the goal is specifically to exercise the confirmation email path —
+and even then, still use `@example.com`, never a real mailbox provider.

@@ -246,9 +246,18 @@ for a closed group (~5 friends), one-time-fee access.
         `a1bca142-…` (Alpha); B queue only `bda4a49c-…` (Beta); B PATCH A’s
         applicationId → `404 {"error":"Application not found"}`; A PATCH
         own → `200` status reviewing
-- [ ] Per-user usage quotas (daily search cap, monthly doc-gen cap) to
-      protect shared API keys (Adzuna/Claude/OpenAI) from runaway cost
-      across multiple users
+- [x] Per-user usage quotas (plan-based: trial vs trusted) to protect shared
+      API keys (Adzuna/Claude/OpenAI) from runaway cost across multiple users
+      - Migration `0006_usage_quotas`: `user_settings` (plan default `trial`,
+        `trial_started_at`) + `usage_counters`
+      - trusted: 50 searches/day, 100 doc-gens/month; trial: 2 searches/day,
+        10 searches total + 5 doc-gens total in 14-day window
+      - `POST /jobs/search` + generate routes + cron consume quota; `429`
+        `{ code: QUOTA_EXCEEDED, … }` with plan-specific messages
+      - Admin: `scripts/set-user-plan.ts <userId> trusted|trial`
+      - Verified: trusted 3 consumes + HTTP search `202` past trial daily;
+        trial 3rd search → `429` "Daily search limit reached (2/day).";
+        trial at 10 total → `429` "Trial search limit reached (10 total)."
 - [ ] Deploy to Railway or Render — real hosting, Postgres + Redis + API +
       worker + web, before payments go live
 - [ ] Stripe one-time payment gating access (not subscription for v1)
@@ -263,13 +272,20 @@ Don't add payments before the app is safely multi-tenant and hosted.
 - Supabase "Confirm email" is ON in this project — signup may not return a
   session until confirmed (disable Confirm email for smoother local UX, or
   confirm via Admin API)
-- Anon signup hits email rate limits quickly in free tier; use a real inbox
-  or temporarily disable confirm email
+- Anon signup hits email rate limits / bounce flags quickly — for scripts use
+  `admin.createUser` + `email_confirm: true` and `@example.com` only (never
+  fake gmail/outlook addresses). Real-user signup UX: disable Confirm email
+  locally, or use a real inbox you control
 - Next must stay on port 3000; if 3000 is busy it steals 3001 from the API
 - `user_id` is uuid-only (no FK to Supabase `auth.users`) — app DB is local
   Docker Postgres, Auth is hosted Supabase
 - Multi-tenant wipe in `0005` truncated profiles/apps/matches/docs/search_runs;
   shared `jobs` kept
+
+- [ ] Switch from Supabase's default email sender to a custom SMTP provider
+      (Resend) once a custom domain is available — needed before scaling
+      beyond the initial small friend group, to avoid shared-reputation
+      bounce/deliverability issues
 
 ## How to start everything
 

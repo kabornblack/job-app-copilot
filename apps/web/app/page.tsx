@@ -1,26 +1,26 @@
-import AuthBar from "./components/AuthBar";
-import Dashboard from "./components/Dashboard";
+import { MotionConfig } from "framer-motion";
+import LandingHeader from "./components/landing/LandingHeader";
+import Hero from "./components/landing/Hero";
+import HowItWorks from "./components/landing/HowItWorks";
+import Showcase from "./components/landing/Showcase";
+import TrustSection from "./components/landing/TrustSection";
+import AccessSection from "./components/landing/AccessSection";
+import LandingFooter from "./components/landing/LandingFooter";
 
-export default function HomePage() {
+export default function LandingPage() {
   return (
-    <main
-      style={{
-        padding: "2rem",
-        fontFamily: "sans-serif",
-        background: "#f5f7fb",
-      }}
-    >
-      <div style={{ maxWidth: 1000, margin: "0 auto" }}>
-        <header style={{ marginBottom: "2rem" }}>
-          <AuthBar />
-          <h1>Job Application Copilot</h1>
-          <p>
-            Profile intake, multi-source search, scoring, review queue, and
-            generated documents.
-          </p>
-        </header>
-        <Dashboard />
+    <MotionConfig reducedMotion="user">
+      <div className="min-h-screen bg-background">
+        <LandingHeader />
+        <main>
+          <Hero />
+          <HowItWorks />
+          <Showcase />
+          <TrustSection />
+          <AccessSection />
+        </main>
+        <LandingFooter />
       </div>
-    </main>
+    </MotionConfig>
   );
 }
