@@ -10,7 +10,7 @@ export default function ProfilePage() {
     <div className="mx-auto max-w-2xl">
       <ProfileForm
         onSearchComplete={() => {
-          router.push("/");
+          router.push("/dashboard");
         }}
       />
     </div>

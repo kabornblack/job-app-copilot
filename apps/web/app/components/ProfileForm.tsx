@@ -165,7 +165,7 @@ export default function ProfileForm({ onSearchComplete }: ProfileFormProps) {
   };
 
   return (
-    <Card>
+    <Card size="sm">
       <CardHeader>
         <CardTitle>Profile</CardTitle>
         <CardDescription>
@@ -174,7 +174,7 @@ export default function ProfileForm({ onSearchComplete }: ProfileFormProps) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="grid gap-4">
+        <form onSubmit={handleSubmit} className="grid gap-3">
           <div className="grid gap-1.5">
             <Label htmlFor="skills">Skills</Label>
             <Input
@@ -204,7 +204,7 @@ export default function ProfileForm({ onSearchComplete }: ProfileFormProps) {
               placeholder="Tallinn, remote"
             />
           </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
               <Label htmlFor="salaryMin">Salary min</Label>
               <Input

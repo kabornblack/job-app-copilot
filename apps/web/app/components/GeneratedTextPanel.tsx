@@ -27,7 +27,7 @@ export default function GeneratedTextPanel({
 }: GeneratedTextPanelProps) {
   if (!generatedCVJson && !generatedCoverLetterJson && !generatedCV && !generatedCoverLetter) {
     return (
-      <Card className="bg-muted/40">
+      <Card size="sm" className="bg-muted/40">
         <CardContent className="space-y-1">
           <p className="text-sm font-medium">No generated draft yet.</p>
           <p className="text-sm text-muted-foreground">
@@ -40,8 +40,8 @@ export default function GeneratedTextPanel({
   }
 
   return (
-    <Card>
-      <CardContent className="space-y-5">
+    <Card size="sm">
+      <CardContent className="space-y-4">
         <h4 className="text-sm font-semibold">Review &amp; edit documents</h4>
         {generatedCVJson ? (
           <DocumentEditor

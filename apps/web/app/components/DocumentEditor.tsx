@@ -207,7 +207,7 @@ export default function DocumentEditor({
   };
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-2">
       <h5 className="text-sm font-semibold">{title}</h5>
 
       <Tabs value={mode} onValueChange={(value) => setMode(value as EditorMode)}>
@@ -283,7 +283,7 @@ export default function DocumentEditor({
       <div
         className={
           mode === "preview"
-            ? "rounded-md border bg-muted/60 px-4 py-5"
+            ? "rounded-md border bg-muted/60 px-3 py-4"
             : undefined
         }
       >
@@ -291,7 +291,7 @@ export default function DocumentEditor({
           className={cn(
             mode === "write" ? "doc-editor-write" : "doc-editor-preview",
             mode === "write"
-              ? "min-h-[180px] rounded-md border bg-background p-3"
+              ? "min-h-[150px] rounded-md border bg-background p-2.5"
               : "mx-auto min-h-[520px] max-w-[680px] bg-white px-[54px] py-[54px] text-[#111111] shadow-[0_1px_4px_rgba(0,0,0,0.18),0_8px_24px_rgba(0,0,0,0.08)]",
           )}
           style={

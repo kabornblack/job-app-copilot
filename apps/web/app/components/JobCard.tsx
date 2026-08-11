@@ -172,19 +172,19 @@ export default function JobCard({
   };
 
   return (
-    <Card className={isPostApplication ? "bg-muted/40" : undefined}>
-      <CardContent className="space-y-4">
+    <Card size="sm" className={isPostApplication ? "bg-muted/40" : undefined}>
+      <CardContent className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 className="text-base font-semibold leading-snug">
+            <h3 className="text-sm font-semibold leading-snug">
               {job.title}
             </h3>
-            <p className="mt-0.5 text-sm text-muted-foreground">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               {job.company} · {job.location ?? "Location unknown"} ·{" "}
               {job.remoteType ?? "Remote info unknown"}
             </p>
           </div>
-          <div className="flex flex-col items-end gap-1.5">
+          <div className="flex flex-col items-end gap-1">
             <Badge variant={isPostApplication ? "secondary" : "outline"}>
               {STATUS_LABELS[status] ?? status}
             </Badge>

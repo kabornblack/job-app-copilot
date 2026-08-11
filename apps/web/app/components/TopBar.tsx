@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { href: "/", label: "Review queue" },
+  { href: "/dashboard", label: "Review queue" },
   { href: "/profile", label: "Profile" },
 ] as const;
 
@@ -37,7 +37,7 @@ export default function TopBar() {
       <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <Link
-            href="/"
+            href="/dashboard"
             className="text-sm font-semibold tracking-wide text-foreground"
           >
             JOB APPLICATION COPILOT

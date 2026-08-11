@@ -31,7 +31,7 @@ export default function LoginPage() {
         setError(signInError.message);
         return;
       }
-      router.replace("/");
+      router.replace("/dashboard");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");

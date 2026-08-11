@@ -129,9 +129,9 @@ export default function ReviewQueue({ apiUrl, initialJobs }: ReviewQueueProps) {
   if (jobs.length === 0) {
     return (
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Review queue</h1>
-        <Card className="mt-4">
-          <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+        <h1 className="text-xl font-semibold tracking-tight">Review queue</h1>
+        <Card className="mt-3">
+          <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
             <p className="text-sm text-muted-foreground">
               No jobs in the review queue yet. Set up your profile and run a
               search to get started.
@@ -146,8 +146,8 @@ export default function ReviewQueue({ apiUrl, initialJobs }: ReviewQueueProps) {
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold tracking-tight">Review queue</h1>
+    <div className="space-y-3">
+      <h1 className="text-xl font-semibold tracking-tight">Review queue</h1>
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as QueueTab)}>
         <TabsList>
           {(Object.keys(TAB_LABELS) as QueueTab[]).map((tab) => (
@@ -156,7 +156,7 @@ export default function ReviewQueue({ apiUrl, initialJobs }: ReviewQueueProps) {
             </TabsTrigger>
           ))}
         </TabsList>
-        <TabsContent value={activeTab} className="mt-4 space-y-4">
+        <TabsContent value={activeTab} className="mt-3 space-y-3">
           {filteredJobs.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No jobs in &ldquo;{TAB_LABELS[activeTab]}&rdquo; right now.

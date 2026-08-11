@@ -168,3 +168,28 @@
     @apply font-sans;
     }
 }
+
+/* Landing-page hero: slow ambient gradient drift. Plain CSS, not
+   framer-motion — this is decorative/ambient, not an interaction, so it
+   doesn't need JS. Paused for reduced-motion users. */
+@keyframes landing-gradient-drift {
+  0% {
+    transform: translate(0%, 0%) rotate(0deg);
+  }
+  50% {
+    transform: translate(-4%, 3%) rotate(6deg);
+  }
+  100% {
+    transform: translate(0%, 0%) rotate(0deg);
+  }
+}
+
+.landing-gradient {
+  animation: landing-gradient-drift 22s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-gradient {
+    animation: none;
+  }
+}

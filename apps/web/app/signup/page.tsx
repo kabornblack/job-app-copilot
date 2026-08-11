@@ -99,7 +99,7 @@ export default function SignupPage() {
           setError(sessionError.message);
           return;
         }
-        router.replace("/");
+        router.replace("/dashboard");
         router.refresh();
         return;
       }

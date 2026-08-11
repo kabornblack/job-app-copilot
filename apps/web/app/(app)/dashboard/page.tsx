@@ -2,10 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { apiFetch, getApiUrl } from "../../lib/api";
-import { getHasProfileFlag, setHasProfileFlag } from "../../lib/profile-flag";
-import ReviewQueue from "../components/ReviewQueue";
-import type { JobSummary } from "../components/JobCard";
+import { apiFetch, getApiUrl } from "@/lib/api";
+import { getHasProfileFlag, setHasProfileFlag } from "@/lib/profile-flag";
+import ReviewQueue from "@/app/components/ReviewQueue";
+import type { JobSummary } from "@/app/components/JobCard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 type LoadState =
@@ -13,7 +13,7 @@ type LoadState =
   | { status: "error"; message: string }
   | { status: "ready"; jobs: JobSummary[] };
 
-export default function HomePage() {
+export default function DashboardPage() {
   const router = useRouter();
   const apiUrl = getApiUrl();
   const [state, setState] = useState<LoadState>({ status: "loading" });
