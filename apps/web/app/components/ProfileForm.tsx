@@ -1,9 +1,28 @@
 "use client";
 import { useState, type FormEvent } from "react";
 import { apiFetch } from "../../lib/api";
+import { setHasProfileFlag } from "../../lib/profile-flag";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 type ProfileFormProps = {
-  apiUrl: string;
   onSearchComplete: () => void;
 };
 
@@ -27,9 +46,7 @@ const sleep = (ms: number) =>
     setTimeout(resolve, ms);
   });
 
-export default function ProfileForm({
-  onSearchComplete,
-}: ProfileFormProps) {
+export default function ProfileForm({ onSearchComplete }: ProfileFormProps) {
   const [skills, setSkills] = useState("");
   const [targetRoles, setTargetRoles] = useState("");
   const [locations, setLocations] = useState("");
@@ -38,9 +55,9 @@ export default function ProfileForm({
   const [remotePref, setRemotePref] = useState("any");
   const [resumeSummary, setResumeSummary] = useState("");
   const [status, setStatus] = useState<string | null>(null);
-  const [statusTone, setStatusTone] = useState<"info" | "error" | "success">(
-    "info",
-  );
+  const [statusTone, setStatusTone] = useState<
+    "info" | "error" | "warning" | "success"
+  >("info");
   const [submitting, setSubmitting] = useState(false);
 
   const parseList = (value: string) =>
@@ -112,10 +129,13 @@ export default function ProfileForm({
         } catch {
           // keep raw body
         }
-        setStatusTone("error");
-        setStatus(
-          response.status === 429 ? message : `Search failed: ${message}`,
-        );
+        if (response.status === 429) {
+          setStatusTone("warning");
+          setStatus(message);
+        } else {
+          setStatusTone("error");
+          setStatus(`Search failed: ${message}`);
+        }
         return;
       }
 
@@ -132,8 +152,9 @@ export default function ProfileForm({
       const stats = run.stats ?? {};
       setStatusTone("success");
       setStatus(
-        `Search complete — ${stats.jobsSeen ?? 0} jobs seen, ${stats.matchesCreated ?? 0} new matches, ${stats.matchesReused ?? 0} reused. Review queue updated.`,
+        `Search complete — ${stats.jobsSeen ?? 0} jobs seen, ${stats.matchesCreated ?? 0} new matches, ${stats.matchesReused ?? 0} reused. Taking you to the review queue…`,
       );
+      setHasProfileFlag();
       onSearchComplete();
     } catch (error) {
       setStatusTone("error");
@@ -144,114 +165,111 @@ export default function ProfileForm({
   };
 
   return (
-    <section style={{ marginBottom: "2rem" }}>
-      <h2>Profile input</h2>
-      <form
-        onSubmit={handleSubmit}
-        style={{ display: "grid", gap: "0.75rem", maxWidth: 650 }}
-      >
-        <label>
-          Skills (comma separated)
-          <input
-            value={skills}
-            onChange={(event) => setSkills(event.target.value)}
-            placeholder="React, TypeScript, SQL"
-            required
-            style={{ width: "100%", padding: "0.5rem" }}
-          />
-        </label>
-        <label>
-          Target roles
-          <input
-            value={targetRoles}
-            onChange={(event) => setTargetRoles(event.target.value)}
-            placeholder="Frontend Engineer, Full-stack Developer"
-            style={{ width: "100%", padding: "0.5rem" }}
-          />
-        </label>
-        <label>
-          Locations
-          <input
-            value={locations}
-            onChange={(event) => setLocations(event.target.value)}
-            placeholder="Tallinn, remote"
-            style={{ width: "100%", padding: "0.5rem" }}
-          />
-        </label>
-        <div
-          style={{
-            display: "grid",
-            gap: "0.75rem",
-            gridTemplateColumns: "1fr 1fr",
-          }}
-        >
-          <label>
-            Salary min
-            <input
-              type="number"
-              value={salaryMin}
-              onChange={(event) => setSalaryMin(event.target.value)}
-              placeholder="3000"
-              style={{ width: "100%", padding: "0.5rem" }}
+    <Card>
+      <CardHeader>
+        <CardTitle>Profile</CardTitle>
+        <CardDescription>
+          Tell us what you&apos;re looking for. Running a search creates or
+          updates your profile and pulls in new matches.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="grid gap-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="skills">Skills</Label>
+            <Input
+              id="skills"
+              value={skills}
+              onChange={(event) => setSkills(event.target.value)}
+              placeholder="React, TypeScript, SQL"
+              required
             />
-          </label>
-          <label>
-            Salary max
-            <input
-              type="number"
-              value={salaryMax}
-              onChange={(event) => setSalaryMax(event.target.value)}
-              placeholder="5000"
-              style={{ width: "100%", padding: "0.5rem" }}
+            <p className="text-xs text-muted-foreground">Comma separated.</p>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="targetRoles">Target roles</Label>
+            <Input
+              id="targetRoles"
+              value={targetRoles}
+              onChange={(event) => setTargetRoles(event.target.value)}
+              placeholder="Frontend Engineer, Full-stack Developer"
             />
-          </label>
-        </div>
-        <label>
-          Remote preference
-          <select
-            value={remotePref}
-            onChange={(event) => setRemotePref(event.target.value)}
-            style={{ width: "100%", padding: "0.5rem" }}
-          >
-            <option value="any">Any</option>
-            <option value="remote">Remote</option>
-            <option value="hybrid">Hybrid</option>
-            <option value="onsite">Onsite</option>
-          </select>
-        </label>
-        <label>
-          Resume summary
-          <textarea
-            value={resumeSummary}
-            onChange={(event) => setResumeSummary(event.target.value)}
-            placeholder="Experienced full-stack engineer with strong React and Node.js skills."
-            rows={4}
-            style={{ width: "100%", padding: "0.5rem" }}
-          />
-        </label>
-        <button
-          type="submit"
-          disabled={submitting}
-          style={{ padding: "0.75rem 1rem", width: 200 }}
-        >
-          {submitting ? "Searching..." : "Search jobs"}
-        </button>
-      </form>
-      {status ? (
-        <p
-          style={{
-            marginTop: "1rem",
-            color:
-              statusTone === "error"
-                ? "#a40"
-                : statusTone === "success"
-                  ? "#276749"
-                  : "#1a202c",
-          }}
-        >
-          {status}
-        </p>
-      ) : null}
-    </section>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="locations">Locations</Label>
+            <Input
+              id="locations"
+              value={locations}
+              onChange={(event) => setLocations(event.target.value)}
+              placeholder="Tallinn, remote"
+            />
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <Label htmlFor="salaryMin">Salary min</Label>
+              <Input
+                id="salaryMin"
+                type="number"
+                value={salaryMin}
+                onChange={(event) => setSalaryMin(event.target.value)}
+                placeholder="3000"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="salaryMax">Salary max</Label>
+              <Input
+                id="salaryMax"
+                type="number"
+                value={salaryMax}
+                onChange={(event) => setSalaryMax(event.target.value)}
+                placeholder="5000"
+              />
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="remotePref">Remote preference</Label>
+            <Select value={remotePref} onValueChange={setRemotePref}>
+              <SelectTrigger id="remotePref" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any</SelectItem>
+                <SelectItem value="remote">Remote</SelectItem>
+                <SelectItem value="hybrid">Hybrid</SelectItem>
+                <SelectItem value="onsite">Onsite</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="resumeSummary">Resume summary</Label>
+            <Textarea
+              id="resumeSummary"
+              value={resumeSummary}
+              onChange={(event) => setResumeSummary(event.target.value)}
+              placeholder="Experienced full-stack engineer with strong React and Node.js skills."
+              rows={4}
+            />
+          </div>
+          <Button type="submit" disabled={submitting} className="w-fit">
+            {submitting ? "Searching…" : "Search jobs"}
+          </Button>
+          {status ? (
+            <Alert
+              variant={
+                statusTone === "error"
+                  ? "destructive"
+                  : statusTone === "warning"
+                    ? "warning"
+                    : statusTone === "success"
+                      ? "success"
+                      : "default"
+              }
+            >
+              <AlertDescription>{status}</AlertDescription>
+            </Alert>
+          ) : null}
+        </form>
+      </CardContent>
+    </Card>
   );
 }
