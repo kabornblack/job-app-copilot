@@ -8,7 +8,20 @@ coverage
 .DS_Store
 job-app-notes.txt
 
-# Scratch test/debug output written by the AI assistant - never commit
+# Root-level JSON allowlist: block every *.json file directly in the repo
+# root except the two known-legitimate config files. This is the primary
+# guard against ad hoc test/debug JSON (curl output, manual proof capture,
+# etc.) landing at repo root and silently accumulating again - name-pattern
+# rules alone only catch filenames that happen to match a known prefix.
+# Does not affect subdirectories (apps/web/*.json, drizzle/migrations/**,
+# services/api/*.json, etc.) since the leading "/" anchors to root only.
+/*.json
+!/package.json
+!/tsconfig.json
+
+# Scratch test/debug output written by the AI assistant - belt-and-suspenders
+# for the same class of file outside repo root, or if the allowlist above is
+# ever loosened - never commit.
 dedup*.json
 search*.json
 payload*.json
@@ -20,5 +33,5 @@ test-output*
 # Generated CV/cover letter output files - not source
 services/api/storage/
 
-# Browser automation screenshots — never commit
+# Browser automation screenshots - never commit
 tmp-browser-proof/

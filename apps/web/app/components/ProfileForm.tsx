@@ -1,6 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
 import { apiFetch } from "../../lib/api";
+import { extractErrorMessage } from "../../lib/error-message";
 import { setHasProfileFlag } from "../../lib/profile-flag";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -120,15 +121,8 @@ export default function ProfileForm({ onSearchComplete }: ProfileFormProps) {
       });
 
       if (response.status !== 202) {
-        let message = await response.text();
-        try {
-          const parsed = JSON.parse(message) as { error?: string };
-          if (parsed.error) {
-            message = parsed.error;
-          }
-        } catch {
-          // keep raw body
-        }
+        const rawBody = await response.text();
+        const message = extractErrorMessage(rawBody, "Something went wrong.");
         if (response.status === 429) {
           setStatusTone("warning");
           setStatus(message);

@@ -217,6 +217,17 @@ regardless of how routine they seem.
 
 **Always ask before:**
 
+- COMPULSORY — no fabricated user accounts, ever: never create a Supabase Auth
+  user for testing purposes, under any circumstance — not via signup, not via
+  admin.createUser, not with @example.com or any other domain, regardless of
+  task type or how routine the test seems. This overrides any prior guidance
+  that permitted @example.com + admin.createUser. When a task needs an
+  authenticated user to verify: give me the exact curl command(s) or browser
+  steps to run myself, using my own real account; I will test manually and
+  bring back the real output (I am always willing to do this — asking is
+  never a blocker, treat it as the default path, not a fallback); do not
+  proceed past a point that requires a new/different user account without
+  stopping and asking first
 - Committing or pushing to any remote branch, including `main` — I commit, or I
   explicitly tell you to
 - Creating or switching to any per-phase feature branches; this repository uses only

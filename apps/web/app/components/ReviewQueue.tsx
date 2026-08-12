@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { apiFetch } from "../../lib/api";
+import { extractErrorMessage } from "../../lib/error-message";
 import JobCard, {
   type GeneratedDocumentResult,
   type JobSummary,
@@ -59,16 +60,8 @@ export default function ReviewQueue({ apiUrl, initialJobs }: ReviewQueueProps) {
     );
 
     if (!response.ok) {
-      let message = await response.text();
-      try {
-        const parsed = JSON.parse(message) as { error?: string };
-        if (parsed.error) {
-          message = parsed.error;
-        }
-      } catch {
-        // keep raw body
-      }
-      throw new Error(message || "Failed to generate text");
+      const rawBody = await response.text();
+      throw new Error(extractErrorMessage(rawBody, "Failed to generate text"));
     }
 
     const generated = await response.json();

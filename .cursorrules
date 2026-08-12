@@ -1,3 +1,20 @@
+COMPULSORY — NO FABRICATED USER ACCOUNTS, EVER:
+Never create a Supabase Auth user for testing purposes, under any
+circumstance — not via signup, not via admin.createUser, not with
+@example.com or any other domain, regardless of task type or how routine
+the test seems. This overrides any prior guidance that permitted
+@example.com + admin.createUser.
+
+When a task needs an authenticated user to verify:
+
+- Give me the exact curl command(s) or browser steps to run myself, using
+  my own real account.
+- I will test manually and bring back the real output. I am always willing
+  to do this — asking is never a blocker, treat it as the default path,
+  not a fallback.
+- Do not proceed past a point that requires a new/different user account
+  without stopping and asking first.
+
 # Operating rules for this repository
 
 Read this file in full before taking any action. These rules are not
@@ -74,6 +91,7 @@ task — check items off only after real, shown proof, never on assumption.
 Stop and ask. A clarifying question costs one message. A wrong guess applied
 directly to the file has cost this project multiple corrupted files and
 wasted sessions already. Slow and confirmed beats fast and broken.
+
 ## Debug output
 
 When showing proof of a test (curl output, query results), paste it directly in your response. Do NOT redirect output to a file on disk unless explicitly asked to save a file. Scratch files left in the working directory get accidentally committed.
@@ -86,6 +104,7 @@ addresses get confirmation mail that bounces and can get the Supabase
 project's email sending restricted.
 
 For throwaway Auth users in scripts, proofs, or agent-run tests, use ONE of:
+
 1. `admin.createUser({ email, password, email_confirm: true })` so no
    confirmation email is sent, and/or
 2. An RFC 2606 reserved domain that must not be delivered — prefer

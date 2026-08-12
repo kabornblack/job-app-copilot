@@ -12,6 +12,7 @@ import {
   ensureUserSettings,
   isQuotaExceededError,
 } from "./lib/quota";
+import { isDuplicateSkillError } from "./lib/profile-knowledge";
 import { initSentry, captureException, flushSentry } from "./lib/sentry";
 import { db } from "./db/client";
 import {
@@ -36,14 +37,25 @@ import { resolveActiveProfile } from "./lib/resolve-profile";
 import { emptySearchRunStats } from "./lib/search-runs";
 import { registerBullBoard } from "./queue/bull-board";
 import { getPipelineQueue } from "./queue/queues";
+import profileKnowledgeRoutes from "./routes/profile-knowledge";
 
 initSentry("api");
 
 const server = Fastify({ logger: true, trustProxy: false });
 
+// Full audited list of HTTP methods actually used anywhere in this service
+// (grep for fastify./server.get|post|put|patch|delete across src/): GET,
+// POST, PUT, PATCH, DELETE, plus OPTIONS for the preflight itself. PUT is
+// only used by PUT /profile/personal-details; DELETE by the five 1:many
+// profile-knowledge resources' delete routes and PUT/DELETE on
+// personal-details. Keep this comment's method list in sync if a future
+// route introduces a method not already listed here.
 server.addHook("onRequest", async (request, reply) => {
   reply.header("access-control-allow-origin", "*");
-  reply.header("access-control-allow-methods", "GET,POST,PATCH,OPTIONS");
+  reply.header(
+    "access-control-allow-methods",
+    "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+  );
   reply.header("access-control-allow-headers", "Content-Type,Authorization");
   if (request.method === "OPTIONS") {
     await reply.status(204).send();
@@ -107,6 +119,10 @@ if ((process.env.SENTRY_ENVIRONMENT ?? "development") === "development") {
 server.setErrorHandler(async (error, request, reply) => {
   if (isQuotaExceededError(error)) {
     return reply.status(429).send(error.payload);
+  }
+
+  if (isDuplicateSkillError(error)) {
+    return reply.status(400).send({ error: error.message });
   }
 
   const statusCode =
@@ -722,6 +738,8 @@ server.patch("/applications/:applicationId/status", async (request, reply) => {
 
   return updated;
 });
+
+await server.register(profileKnowledgeRoutes);
 
 const start = async () => {
   try {
