@@ -21,8 +21,7 @@ safe to build on — versus what's still pending.
 ## Phase 0 — Foundations COMPLETE (merged to main)
 
 - [x] pnpm workspace monorepo (apps/web, services/api)
-- [x] Docker Compose: Postgres 16 + pgvector, Redis (host port 5433, not 5432
-      - a native Windows Postgres service occupies 5432 on this machine)
+- [x] Docker Compose: Postgres 16 + pgvector, Redis (host port 5433, not 5432 - a native Windows Postgres service occupies 5432 on this machine)
 - [x] Drizzle ORM schema: profiles, jobs, matches, applications,
       application_status_history, generated_documents
 - [x] pgvector extension auto-enabled via docker-entrypoint-initdb.d
@@ -85,126 +84,72 @@ safe to build on — versus what's still pending.
 
 ## Phase 2 - Real matching + real documents - IN PROGRESS
 
-- [x] pgvector embeddings generated for jobs and profile
-      - OpenAI `text-embedding-3-small` (1536 dims, matches `jobs.embedding`)
-      - Job embedding persisted on insert/backfill in `POST /jobs/search`
-      - Profile embedding computed at search time (not persisted)
-      - Verified: job row with non-null embedding (`vector_dims` = 1536) and
-        match rows with non-null `semantic_similarity` (e.g. 0.6321) via curl + SQL
+- [x] pgvector embeddings generated for jobs and profile - OpenAI `text-embedding-3-small` (1536 dims, matches `jobs.embedding`) - Job embedding persisted on insert/backfill in `POST /jobs/search` - Profile embedding computed at search time (not persisted) - Verified: job row with non-null embedding (`vector_dims` = 1536) and
+      match rows with non-null `semantic_similarity` (e.g. 0.6321) via curl + SQL
 - [x] Semantic similarity stored as its own column (matches.semantic_similarity),
       kept separate from the rule-based/Claude score - do not merge these
       into one number
 - [x] Claude-based scoring replacing/augmenting rule-based-v1, with
-      structured explanation output
-      - Forced tool_use `score_job_match` → `{ score: 0-100 int, explanation }`
-      - Stored as `matches.score` with `model_version = claude-sonnet-4-6-v1`
-      - Rule-based kept in `score.ts`, returned as `ruleBasedScore` on search
-        response only (not persisted); `semantic_similarity` still separate
-      - Verified differentiation e.g. scores 18 / 42 / 85 with distinct
-        explanations; re-search skips Claude when matches already exist
+      structured explanation output - Forced tool_use `score_job_match` → `{ score: 0-100 int, explanation }` - Stored as `matches.score` with `model_version = claude-sonnet-4-6-v1` - Rule-based kept in `score.ts`, returned as `ruleBasedScore` on search
+      response only (not persisted); `semantic_similarity` still separate - Verified differentiation e.g. scores 18 / 42 / 85 with distinct
+      explanations; re-search skips Claude when matches already exist
 - [x] Real docx generation for CV and cover letter (populate
-      generated_documents.file_path)
-      - `docx` package; files under `services/api/storage/generated/{applicationId}/`
-      - `file_path` stores stem e.g. `storage/generated/{id}/cv`
-      - Download: `GET /applications/:id/documents/:docType/download?format=docx|pdf`
-      - Frontend Download DOCX/PDF buttons in GeneratedTextPanel
-      - Verified non-empty files (e.g. cv.docx 9636 bytes, cv.pdf 3078 bytes),
-        readable text extracted from both formats, browser download opened
-- [x] Real PDF generation (same)
-      - `pdfkit`; sibling `.pdf` next to `.docx` from the same stem
-- [x] TipTap review-and-edit before download
-      - `content_json` jsonb on `generated_documents` (migration 0002)
-      - TipTap StarterKit constrained to h1/h2, paragraph, bold, italic, bullets
-      - Generate seeds TipTap JSON via adapted `parseDocumentBlocks`; no file write
-      - PATCH save; download builds docx/pdf from saved JSON
-      - Verified marker `EDITED_MARKER_xyz_7841` survived into downloaded DOCX
-        and PDF after edit+save (not the original Claude draft)
+      generated_documents.file_path) - `docx` package; files under `services/api/storage/generated/{applicationId}/` - `file_path` stores stem e.g. `storage/generated/{id}/cv` - Download: `GET /applications/:id/documents/:docType/download?format=docx|pdf` - Frontend Download DOCX/PDF buttons in GeneratedTextPanel - Verified non-empty files (e.g. cv.docx 9636 bytes, cv.pdf 3078 bytes),
+      readable text extracted from both formats, browser download opened
+- [x] Real PDF generation (same) - `pdfkit`; sibling `.pdf` next to `.docx` from the same stem
+- [x] TipTap review-and-edit before download - `content_json` jsonb on `generated_documents` (migration 0002) - TipTap StarterKit constrained to h1/h2, paragraph, bold, italic, bullets - Generate seeds TipTap JSON via adapted `parseDocumentBlocks`; no file write - PATCH save; download builds docx/pdf from saved JSON - Verified marker `EDITED_MARKER_xyz_7841` survived into downloaded DOCX
+      and PDF after edit+save (not the original Claude draft)
 - [x] Full status tracker UI reflecting the complete lifecycle (found ->
-      reviewing -> tailored -> applied -> interviewing -> offer/rejected/withdrawn)
-      - `PATCH /applications/:id/status` inserts `application_status_history` on
-        real status changes; sets `applications.applied_at` on first `applied`
-      - JobCard: status badge; “Apply on {company}'s site” → real job URL;
-        pre-application Approve/Reject/Generate + “Mark as applied” when docs
-        exist; post-application muted card + lifecycle select only
-      - ReviewQueue client tabs: To review / Applied / Archived with counts
-      - Verified app `fa6ec9a2-041a-4288-93a1-292a0df2df68` (Ebury Adzuna URL):
-        transitions applied → interviewing → offer produced 3 history rows;
-        noop same-status PATCH did not insert; `applied_at` set once and kept
+      reviewing -> tailored -> applied -> interviewing -> offer/rejected/withdrawn) - `PATCH /applications/:id/status` inserts `application_status_history` on
+      real status changes; sets `applications.applied_at` on first `applied` - JobCard: status badge; “Apply on {company}'s site” → real job URL;
+      pre-application Approve/Reject/Generate + “Mark as applied” when docs
+      exist; post-application muted card + lifecycle select only - ReviewQueue client tabs: To review / Applied / Archived with counts - Verified app `fa6ec9a2-041a-4288-93a1-292a0df2df68` (Ebury Adzuna URL):
+      transitions applied → interviewing → offer produced 3 history rows;
+      noop same-status PATCH did not insert; `applied_at` set once and kept
 
 ## Phase 3 - Background processing + scheduling - COMPLETE
 
-- [x] Move search/scoring onto BullMQ workers (doc-gen stays sync per ADR-0003)
-      - `bullmq` + `ioredis`; worker at `services/api/src/worker.ts`
-      - Jobs: `search-run` → fan-out `score-match` using `ingestJobsForProfile` /
-        `scoreMatchForJob` (same libs as former sync path)
-      - `POST /jobs/search` → `202 { runId }`; `GET /search-runs/:id` for poll
-      - `search_runs` table + enums applied (migration 0003); status
-        queued → running → completed/failed with stats counters
-      - UI: Search → “Searching...” → poll → refresh review queue
-      - Browser-verified: complete message “20 jobs seen…”, review queue cards
-        present (e.g. first title “Senior Lead Fullstack AI Engineer”)
-- [x] Daily repeatable cron job for scraping
-      - BullMQ `upsertJobScheduler('daily-search-run', 0 6 * * * Europe/Tallinn)`
-        at worker startup (idempotent; `getJobSchedulers` shows one entry)
-      - Tick calls `enqueueCronSearchIfActiveProfile` → `search_runs.trigger=cron`
-        or no-op if no active profile
-      - Verified: scheduler key `daily-search-run`; cron run
-        `a69bab92-9bcc-4466-b018-bbcdbbff2d8b` completed with 20/20 scores
-- [x] Idempotency + retry tests for worker jobs
-      - `job-search.idempotency.test.ts`: re-score skips Claude / no duplicate
-        match or application; simulated crash+retry leaves one row each
-      - Full API suite: 14 tests passed
+- [x] Move search/scoring onto BullMQ workers (doc-gen stays sync per ADR-0003) - `bullmq` + `ioredis`; worker at `services/api/src/worker.ts` - Jobs: `search-run` → fan-out `score-match` using `ingestJobsForProfile` /
+      `scoreMatchForJob` (same libs as former sync path) - `POST /jobs/search` → `202 { runId }`; `GET /search-runs/:id` for poll - `search_runs` table + enums applied (migration 0003); status
+      queued → running → completed/failed with stats counters - UI: Search → “Searching...” → poll → refresh review queue - Browser-verified: complete message “20 jobs seen…”, review queue cards
+      present (e.g. first title “Senior Lead Fullstack AI Engineer”)
+- [x] Daily repeatable cron job for scraping - BullMQ `upsertJobScheduler('daily-search-run', 0 6 * * * Europe/Tallinn)`
+      at worker startup (idempotent; `getJobSchedulers` shows one entry) - Tick calls `enqueueCronSearchIfActiveProfile` → `search_runs.trigger=cron`
+      or no-op if no active profile - Verified: scheduler key `daily-search-run`; cron run
+      `a69bab92-9bcc-4466-b018-bbcdbbff2d8b` completed with 20/20 scores
+- [x] Idempotency + retry tests for worker jobs - `job-search.idempotency.test.ts`: re-score skips Claude / no duplicate
+      match or application; simulated crash+retry leaves one row each - Full API suite: 14 tests passed
 
 ## Phase 4 - Observability + hardening - IN PROGRESS
 
-- [x] Sentry on API and workers
-      - `@sentry/node`; shared `lib/sentry.ts`; `initSentry("api"|"worker")`
-      - Env: `SENTRY_DSN`, optional `SENTRY_ENVIRONMENT`
-      - Fastify `setErrorHandler` captures 5xx; BullMQ `failed` handler captures
-        with jobName/jobId + sanitized payload (no embeddings)
-      - Provider failures tagged `claude` / `adzuna` / `openai`
-      - Verified: GET `/debug/sentry-test` → event id
-        `d4447060da4a4cb08284d1041b863c71` (check Sentry Issues UI)
-- [x] Bull Board for queue visibility
-      - `@bull-board/api` + `@bull-board/fastify`; adapter
-        `@bull-board/api/bullMQAdapter`
-      - Mounted at `/admin/queues` only when `BULL_BOARD_USER` +
-        `BULL_BOARD_PASSWORD` are set; otherwise logged as disabled
-      - Loopback-only (`403` off-localhost) + HTTP basic auth (`401` without)
-      - Verified: unauthenticated → `401 Unauthorized`; with basic auth →
-        `200` HTML UI; `/admin/queues/api/queues` shows `pipeline` queue
-        (e.g. completed: 85, delayed: 1, `hasWorkers: true`,
-        `jobSchedulerCount: 1`)
-- [x] AI pipeline test coverage (prompt regression, scoring consistency)
-      - Claude score Zod: invalid/non-object/missing/empty explanation,
-        float score, string `"80"` rejected; missing `score_job_match`
-        tool_use throws (mocked fetch)
-      - Embeddings: OpenAI 500 throws; wrong/missing dims throw; happy-path
-        returns 1536 numbers (mocked fetch)
-      - TipTap seed: empty/whitespace → empty doc; no headings; bullets-only;
-        12k paragraph preserved; mixed `#`/`##`/bullets
-      - Verified: `pnpm --filter ./services/api test` → 8 files, 29 tests passed
+- [x] Sentry on API and workers - `@sentry/node`; shared `lib/sentry.ts`; `initSentry("api"|"worker")` - Env: `SENTRY_DSN`, optional `SENTRY_ENVIRONMENT` - Fastify `setErrorHandler` captures 5xx; BullMQ `failed` handler captures
+      with jobName/jobId + sanitized payload (no embeddings) - Provider failures tagged `claude` / `adzuna` / `openai` - Verified: GET `/debug/sentry-test` → event id
+      `d4447060da4a4cb08284d1041b863c71` (check Sentry Issues UI)
+- [x] Bull Board for queue visibility - `@bull-board/api` + `@bull-board/fastify`; adapter
+      `@bull-board/api/bullMQAdapter` - Mounted at `/admin/queues` only when `BULL_BOARD_USER` +
+      `BULL_BOARD_PASSWORD` are set; otherwise logged as disabled - Loopback-only (`403` off-localhost) + HTTP basic auth (`401` without) - Verified: unauthenticated → `401 Unauthorized`; with basic auth →
+      `200` HTML UI; `/admin/queues/api/queues` shows `pipeline` queue
+      (e.g. completed: 85, delayed: 1, `hasWorkers: true`,
+      `jobSchedulerCount: 1`)
+- [x] AI pipeline test coverage (prompt regression, scoring consistency) - Claude score Zod: invalid/non-object/missing/empty explanation,
+      float score, string `"80"` rejected; missing `score_job_match`
+      tool_use throws (mocked fetch) - Embeddings: OpenAI 500 throws; wrong/missing dims throw; happy-path
+      returns 1536 numbers (mocked fetch) - TipTap seed: empty/whitespace → empty doc; no headings; bullets-only;
+      12k paragraph preserved; mixed `#`/`##`/bullets - Verified: `pnpm --filter ./services/api test` → 8 files, 29 tests passed
 
 ## Phase 5 - Second source + polish - IN PROGRESS
 
-- [x] Jooble integration
-      - `lib/jooble.ts` (parse + `searchJooble`), `JOOBLE_API_KEY`
-      - Int64 ids quoted before `JSON.parse` (JS Number precision)
-      - Live proof: United Kingdom query returned jobs (e.g. Insight /
-        Senior ITAM Pre-Sales Consultant); Tallinn/Estonia often
-        `totalCount: 0` on Jooble — use a broader location when proving
-- [x] Cross-source dedup logic
-      - Shared `computeJobFingerprint` (title+company+location, no
-        externalId); migration `0004` recomputed fingerprints via
-        pgcrypto `bytea` (Postgres text cannot hold NUL)
-      - `job_source_listings` junction + `unique(source, external_id)` on
-        jobs and listings; `jobs_fingerprint_idx`
-      - `upsertJobFromListing`: (source, external_id) → fingerprint →
-        insert; parallel Adzuna+Jooble ingest with partial-failure
-      - Verified collision: real Jooble listing + Adzuna twin same
-        title/company/location → one `jobs` row
-        (`b4c144a8-d077-4502-a405-d854ca9fc907`), two listings
-        (adzuna + jooble), `fingerprintMatched: true` on second upsert
+- [x] Jooble integration - `lib/jooble.ts` (parse + `searchJooble`), `JOOBLE_API_KEY` - Int64 ids quoted before `JSON.parse` (JS Number precision) - Live proof: United Kingdom query returned jobs (e.g. Insight /
+      Senior ITAM Pre-Sales Consultant); Tallinn/Estonia often
+      `totalCount: 0` on Jooble — use a broader location when proving
+- [x] Cross-source dedup logic - Shared `computeJobFingerprint` (title+company+location, no
+      externalId); migration `0004` recomputed fingerprints via
+      pgcrypto `bytea` (Postgres text cannot hold NUL) - `job_source_listings` junction + `unique(source, external_id)` on
+      jobs and listings; `jobs_fingerprint_idx` - `upsertJobFromListing`: (source, external_id) → fingerprint →
+      insert; parallel Adzuna+Jooble ingest with partial-failure - Verified collision: real Jooble listing + Adzuna twin same
+      title/company/location → one `jobs` row
+      (`b4c144a8-d077-4502-a405-d854ca9fc907`), two listings
+      (adzuna + jooble), `fingerprintMatched: true` on second upsert
 
 ### Phase 5 gotchas
 
@@ -219,45 +164,32 @@ Converts the app from single-user local tool to a small multi-user product
 for a closed group (~5 friends), one-time-fee access.
 
 - [x] Supabase Auth wired into Next.js (login/signup) and Fastify (verify
-      session/JWT on protected routes)
-      - Web: `@supabase/ssr` + `@supabase/supabase-js`; `/login`, `/signup`;
-        middleware redirects unauthenticated `/` → `/login`
-      - API: global `onRequest` `requireSupabaseAuth`; Bearer JWT via
-        `supabase.auth.getUser`; public: `/health`, OPTIONS, Bull Board,
-        `/debug/sentry-test`
-      - Client `apiFetch` attaches `Authorization: Bearer <access_token>`
-      - Env: `SUPABASE_*` + `NEXT_PUBLIC_SUPABASE_*` (also `apps/web/.env.local`)
-      - Verified: real signup user `e80f036c-a6da-468e-9844-dc2cc1e9e683`;
-        login session (token len 828); `GET /applications/review-queue`
-        without auth → `401 {"error":"Unauthorized"}`; with Bearer → `200`
-        queue JSON; browser `GET /` → `307 Location: /login`; `/login` and
-        `/signup` return 200 with forms
+      session/JWT on protected routes) - Web: `@supabase/ssr` + `@supabase/supabase-js`; `/login`, `/signup`;
+      middleware redirects unauthenticated `/` → `/login` - API: global `onRequest` `requireSupabaseAuth`; Bearer JWT via
+      `supabase.auth.getUser`; public: `/health`, OPTIONS, Bull Board,
+      `/debug/sentry-test` - Client `apiFetch` attaches `Authorization: Bearer <access_token>` - Env: `SUPABASE_*` + `NEXT_PUBLIC_SUPABASE_*` (also `apps/web/.env.local`) - Verified: real signup user `e80f036c-a6da-468e-9844-dc2cc1e9e683`;
+      login session (token len 828); `GET /applications/review-queue`
+      without auth → `401 {"error":"Unauthorized"}`; with Bearer → `200`
+      queue JSON; browser `GET /` → `307 Location: /login`; `/login` and
+      `/signup` return 200 with forms
 - [x] Migration: add user_id to applications, matches, generated_documents,
-      profiles (jobs table stays shared/global — listings aren't per-user)
-      - Migration `0005_user_id`: wipe user-owned tables; add `user_id uuid
-        NOT NULL` (no cross-DB FK to Supabase auth.users); also on
-        `search_runs`; unique one active profile per user
+      profiles (jobs table stays shared/global — listings aren't per-user) - Migration `0005_user_id`: wipe user-owned tables; add `user_id uuid
+      NOT NULL` (no cross-DB FK to Supabase auth.users); also on
+      `search_runs`; unique one active profile per user
 - [x] Every existing route filtered by authenticated user_id — audit all
-      of index.ts, not just new routes
-      - `resolveActiveProfile(profile, userId)`; inserts set `user_id`;
-        all SELECT/UPDATE in `index.ts` scoped; worker scoring inherits
-        from profile; cron enqueues every active profile
-      - Verified two users: A `865be73b-…` / B `f3839968-…`; A queue only
-        `a1bca142-…` (Alpha); B queue only `bda4a49c-…` (Beta); B PATCH A’s
-        applicationId → `404 {"error":"Application not found"}`; A PATCH
-        own → `200` status reviewing
+      of index.ts, not just new routes - `resolveActiveProfile(profile, userId)`; inserts set `user_id`;
+      all SELECT/UPDATE in `index.ts` scoped; worker scoring inherits
+      from profile; cron enqueues every active profile - Verified two users: A `865be73b-…` / B `f3839968-…`; A queue only
+      `a1bca142-…` (Alpha); B queue only `bda4a49c-…` (Beta); B PATCH A’s
+      applicationId → `404 {"error":"Application not found"}`; A PATCH
+      own → `200` status reviewing
 - [x] Per-user usage quotas (plan-based: trial vs trusted) to protect shared
-      API keys (Adzuna/Claude/OpenAI) from runaway cost across multiple users
-      - Migration `0006_usage_quotas`: `user_settings` (plan default `trial`,
-        `trial_started_at`) + `usage_counters`
-      - trusted: 50 searches/day, 100 doc-gens/month; trial: 2 searches/day,
-        10 searches total + 5 doc-gens total in 14-day window
-      - `POST /jobs/search` + generate routes + cron consume quota; `429`
-        `{ code: QUOTA_EXCEEDED, … }` with plan-specific messages
-      - Admin: `scripts/set-user-plan.ts <userId> trusted|trial`
-      - Verified: trusted 3 consumes + HTTP search `202` past trial daily;
-        trial 3rd search → `429` "Daily search limit reached (2/day).";
-        trial at 10 total → `429` "Trial search limit reached (10 total)."
+      API keys (Adzuna/Claude/OpenAI) from runaway cost across multiple users - Migration `0006_usage_quotas`: `user_settings` (plan default `trial`,
+      `trial_started_at`) + `usage_counters` - trusted: 50 searches/day, 100 doc-gens/month; trial: 2 searches/day,
+      10 searches total + 5 doc-gens total in 14-day window - `POST /jobs/search` + generate routes + cron consume quota; `429`
+      `{ code: QUOTA_EXCEEDED, … }` with plan-specific messages - Admin: `scripts/set-user-plan.ts <userId> trusted|trial` - Verified: trusted 3 consumes + HTTP search `202` past trial daily;
+      trial 3rd search → `429` "Daily search limit reached (2/day).";
+      trial at 10 total → `429` "Trial search limit reached (10 total)."
 - [ ] Deploy to Railway or Render — real hosting, Postgres + Redis + API +
       worker + web, before payments go live
 - [ ] Stripe one-time payment gating access (not subscription for v1)
@@ -286,6 +218,78 @@ Don't add payments before the app is safely multi-tenant and hosted.
       (Resend) once a custom domain is available — needed before scaling
       beyond the initial small friend group, to avoid shared-reputation
       bounce/deliverability issues
+
+## Phase 7 — Profile knowledge base — Stage 1 COMPLETE, Stage 2 IN PROGRESS
+
+Structured career data (work history, education, certifications,
+achievements, contact info) so generation uses real facts instead of
+inventing them. See ADR-0004. Split into stages: Stage 1 (schema + API,
+backend-only) → Stage 2 (tabbed profile UI, frontend-only) → Stage 3
+(generation prompt serialization).
+
+### Stage 1 — schema + CRUD API — COMPLETE
+
+- [x] Migration: personal_details, work_experience, education,
+      certifications, achievements, skills tables (user_id-scoped, not
+      versioned like profiles)
+      - Migration `0007_profile_knowledge_base`; hand-appended
+        `_journal.json` entry (idx 7), no snapshot file, matching the
+        existing hand-maintained pattern
+      - Verified: `Migrations applied successfully`; all 6 tables confirmed
+        present via `information_schema`; `work_experience`'s columns +
+        CHECK constraints (month 1-12 range, end-month/end-year
+        both-or-neither) confirmed via `\d work_experience`
+- [x] CRUD API for all six resources, auth-scoped like existing routes
+      - `services/api/src/lib/profile-knowledge.ts` (plain functions, same
+        shape as `job-search.ts`'s `scoreMatchForJob`) +
+        `services/api/src/routes/profile-knowledge.ts` (Fastify plugin,
+        23 endpoints), registered from `index.ts` via one
+        `await server.register(profileKnowledgeRoutes)` — no handlers
+        inlined into index.ts
+      - Verified: `profile-knowledge.test.ts` 6/6 tests passed against real
+        local Postgres (personal_details + 5 x 1:many resources), each
+        proving full CRUD plus cross-user isolation (two fake userIds,
+        cross-user update/delete return null, zero residual rows after
+        `afterAll` cleanup, confirmed via direct SQL); full suite 12 files
+        / 50 tests passed
+      - Verified live via curl against the running server, all six
+        resources, create/read/update/delete; no-token → `401`;
+        cross-user PATCH/DELETE → `404` (not leaking existence), original
+        row left intact. Account used for this was a throwaway created
+        via `admin.createUser` + `@example.com`, permitted under the rules
+        in force at the time and deleted immediately after — that method
+        is now retroactively forbidden by the COMPULSORY no-fabricated-
+        accounts rule (see `.cursorrules` / `PROJECT_BRIEF.md` §8); no
+        Supabase Auth accounts will be created for verification going
+        forward
+
+### Stage 2 — tabbed profile UI — IN PROGRESS
+
+- [ ] Tabbed/side-nav profile UI (Personal Info / Work Experience /
+      Education / Skills / Certifications / Achievements / Job Search
+      Preferences), independent save per section, repeatable "add another"
+      cards for the 1:many sections
+
+### Stage 3 — generation prompt serialization — NOT STARTED
+
+- [ ] Generation prompt serialization: structured context replaces
+      resume_summary as primary source; verify with real generated CV
+      showing real name/company/dates, not invented content
+
+### Phase 7 gotchas
+
+- Partial-update (PATCH) zod schemas deliberately do NOT re-validate the
+  work_experience/education/certifications/achievements "both-or-neither"
+  date-pair constraint — a PATCH touching only one half of a pair can't
+  know the existing row's other value, so that check is only correct at
+  create time. The DB CHECK constraint is the real source of truth for
+  updates; an invalid partial update fails there, not with a clean 400.
+- `services/api/scripts/proof-quotas.ts` creates two Supabase Auth users
+  per run (`copilot.quota.trial.*@example.com` / `copilot.quota.trusted.*`)
+  and has no cleanup code — this is why leftover accounts from Phase 6
+  were still present in the Auth dashboard. Do not run this script; if
+  quota behavior needs re-verification, ask the user for manual
+  curl/browser steps against their own real account instead.
 
 ## How to start everything
 

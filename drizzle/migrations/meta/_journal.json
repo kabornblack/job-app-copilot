@@ -50,6 +50,20 @@
       "when": 1786460000000,
       "tag": "0006_usage_quotas",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786560000000,
+      "tag": "0007_profile_knowledge_base",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786564000000,
+      "tag": "0008_skills_case_insensitive_unique",
+      "breakpoints": true
     }
   ]
 }

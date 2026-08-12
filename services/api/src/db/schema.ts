@@ -8,10 +8,12 @@ import {
   uuid,
   boolean,
   integer,
+  smallint,
   numeric,
   vector,
   jsonb,
   unique,
+  check,
   index,
   uniqueIndex,
   primaryKey,
@@ -261,5 +263,199 @@ export const usageCounters = pgTable(
       columns: [table.userId, table.metric, table.periodStart],
     }),
     userIdIdx: index("usage_counters_user_id_idx").on(table.userId),
+  }),
+);
+
+/**
+ * Phase 7 / ADR-0004: profile knowledge base. user_id-scoped (no FK to
+ * Supabase auth.users, matching the existing pattern), none versioned like
+ * profiles. Feeds document generation/display only — profiles.skills stays
+ * untouched and continues to drive matching/embeddings.
+ */
+export const personalDetails = pgTable("personal_details", {
+  userId: uuid("user_id").primaryKey(),
+  fullName: text("full_name"),
+  email: text("email"),
+  phone: text("phone"),
+  location: text("location"),
+  linkedinUrl: text("linkedin_url"),
+  portfolioUrl: text("portfolio_url"),
+  professionalSummary: text("professional_summary"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const workExperience = pgTable(
+  "work_experience",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    company: text("company").notNull(),
+    title: text("title").notNull(),
+    location: text("location"),
+    startMonth: smallint("start_month").notNull(),
+    startYear: smallint("start_year").notNull(),
+    endMonth: smallint("end_month"),
+    endYear: smallint("end_year"),
+    bullets: text("bullets").array().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    userIdIdx: index("work_experience_user_id_idx").on(table.userId),
+    startMonthCheck: check(
+      "work_experience_start_month_check",
+      sql`${table.startMonth} BETWEEN 1 AND 12`,
+    ),
+    endMonthCheck: check(
+      "work_experience_end_month_check",
+      sql`${table.endMonth} IS NULL OR ${table.endMonth} BETWEEN 1 AND 12`,
+    ),
+    endDatePairCheck: check(
+      "work_experience_end_date_pair_check",
+      sql`(${table.endMonth} IS NULL) = (${table.endYear} IS NULL)`,
+    ),
+  }),
+);
+
+export const education = pgTable(
+  "education",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    institution: text("institution").notNull(),
+    degree: text("degree").notNull(),
+    fieldOfStudy: text("field_of_study"),
+    startMonth: smallint("start_month").notNull(),
+    startYear: smallint("start_year").notNull(),
+    endMonth: smallint("end_month"),
+    endYear: smallint("end_year"),
+    description: text("description"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    userIdIdx: index("education_user_id_idx").on(table.userId),
+    startMonthCheck: check(
+      "education_start_month_check",
+      sql`${table.startMonth} BETWEEN 1 AND 12`,
+    ),
+    endMonthCheck: check(
+      "education_end_month_check",
+      sql`${table.endMonth} IS NULL OR ${table.endMonth} BETWEEN 1 AND 12`,
+    ),
+    endDatePairCheck: check(
+      "education_end_date_pair_check",
+      sql`(${table.endMonth} IS NULL) = (${table.endYear} IS NULL)`,
+    ),
+  }),
+);
+
+export const certifications = pgTable(
+  "certifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    name: text("name").notNull(),
+    issuer: text("issuer").notNull(),
+    issueMonth: smallint("issue_month"),
+    issueYear: smallint("issue_year"),
+    expirationMonth: smallint("expiration_month"),
+    expirationYear: smallint("expiration_year"),
+    credentialId: text("credential_id"),
+    credentialUrl: text("credential_url"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    userIdIdx: index("certifications_user_id_idx").on(table.userId),
+    issueMonthCheck: check(
+      "certifications_issue_month_check",
+      sql`${table.issueMonth} IS NULL OR ${table.issueMonth} BETWEEN 1 AND 12`,
+    ),
+    issueDatePairCheck: check(
+      "certifications_issue_date_pair_check",
+      sql`(${table.issueMonth} IS NULL) = (${table.issueYear} IS NULL)`,
+    ),
+    expirationMonthCheck: check(
+      "certifications_expiration_month_check",
+      sql`${table.expirationMonth} IS NULL OR ${table.expirationMonth} BETWEEN 1 AND 12`,
+    ),
+    expirationDatePairCheck: check(
+      "certifications_expiration_date_pair_check",
+      sql`(${table.expirationMonth} IS NULL) = (${table.expirationYear} IS NULL)`,
+    ),
+  }),
+);
+
+export const achievements = pgTable(
+  "achievements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    month: smallint("month"),
+    year: smallint("year"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    userIdIdx: index("achievements_user_id_idx").on(table.userId),
+    monthCheck: check(
+      "achievements_month_check",
+      sql`${table.month} IS NULL OR ${table.month} BETWEEN 1 AND 12`,
+    ),
+    datePairCheck: check(
+      "achievements_date_pair_check",
+      sql`(${table.month} IS NULL) = (${table.year} IS NULL)`,
+    ),
+  }),
+);
+
+export const skills = pgTable(
+  "skills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    name: text("name").notNull(),
+    category: text("category"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    userIdIdx: index("skills_user_id_idx").on(table.userId),
+    // Case-insensitive uniqueness (Phase 7 Stage 2 hotfix, migration 0008):
+    // "React" and "react" must collide for the same user. A functional
+    // unique index on lower(name) is the DB-level source of truth — the
+    // stored `name` value itself keeps whatever casing the user typed.
+    userIdNameLowerUnique: uniqueIndex("skills_user_id_name_lower_unique").on(
+      table.userId,
+      sql`lower(${table.name})`,
+    ),
   }),
 );
