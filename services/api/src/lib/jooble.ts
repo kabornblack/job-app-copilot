@@ -100,7 +100,12 @@ export async function searchJooble(
     throw new Error("JOOBLE_API_KEY is required for Jooble integration");
   }
 
-  const keywords = [...profile.targetRoles, ...profile.skills]
+  // keywords is built from targetRoles only, not skills - same fix as
+  // adzuna.ts's `what=` and for the same reason: folding in a full skills
+  // list (often 15-25+ terms) turns this into an overly specific query that
+  // reliably returns zero results. profile.skills is intentionally unused
+  // here - it's still passed to Claude's scoring prompt in full elsewhere.
+  const keywords = profile.targetRoles
     .map((term) => term.trim())
     .filter(Boolean)
     .join(", ");

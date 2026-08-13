@@ -183,13 +183,45 @@ for a closed group (~5 friends), one-time-fee access.
       `a1bca142-…` (Alpha); B queue only `bda4a49c-…` (Beta); B PATCH A’s
       applicationId → `404 {"error":"Application not found"}`; A PATCH
       own → `200` status reviewing
-- [x] Per-user usage quotas (plan-based: trial vs trusted) to protect shared
-      API keys (Adzuna/Claude/OpenAI) from runaway cost across multiple users - Migration `0006_usage_quotas`: `user_settings` (plan default `trial`,
-      `trial_started_at`) + `usage_counters` - trusted: 50 searches/day, 100 doc-gens/month; trial: 2 searches/day,
-      10 searches total + 5 doc-gens total in 14-day window - `POST /jobs/search` + generate routes + cron consume quota; `429`
-      `{ code: QUOTA_EXCEEDED, … }` with plan-specific messages - Admin: `scripts/set-user-plan.ts <userId> trusted|trial` - Verified: trusted 3 consumes + HTTP search `202` past trial daily;
-      trial 3rd search → `429` "Daily search limit reached (2/day).";
-      trial at 10 total → `429` "Trial search limit reached (10 total)."
+- [x] Per-user usage quotas (plan-based: free/pro/trusted, payg reserved) to
+      protect shared API keys (Adzuna/Claude/OpenAI) from runaway cost across
+      multiple users — supersedes the original trial/trusted design below - Migration `0009_plan_free_pro_trusted`: renames existing `trial` rows to
+      `free` (permanent tier now, no expiry — `trialExpired`/
+      `TRIAL_WINDOW_DAYS` removed from `quota.ts`; `trial_started_at`
+      column left in place unused rather than dropped); widens the
+      `user_settings.plan` CHECK to `free|pro|trusted|payg`; adds
+      `quota_overrides` (plan, metric) → limit_value, seeded with free/
+      trusted's numbers - Free: 1 search/week, 1 CV/day, 1 cover letter/day, 40 scoring calls/
+      month (safety backstop). Pro (fixed code constants, not editable):
+      5 searches/day, 20 CV/month, 20 cover letters/month, 300 scoring
+      calls/month. Trusted: 2 searches/day, 8 CV/month, 8 cover letters/
+      month, 100 scoring calls/month - Free and Trusted's numbers are editable via `quota_overrides` without a
+      deploy (plain `UPDATE`); Pro's stay hardcoded in `quota.ts` on purpose
+      so a paying user's allowance can't silently change under them - New scoring safety backstop (`consumeScoreCallQuota`, all three tiers)
+      is distinct from the per-day search cap and per-month generation cap —
+      guards against one broad query matching an unusually large number of
+      postings. Not user-facing: never throws, checked in `scoreMatchForJob`
+      right before the Claude call (never for reused matches); when hit,
+      remaining jobs are skipped gracefully and the run still completes —
+      surfaced via new `search_runs.stats.scoreJobsQuotaSkipped` rather than
+      an error, same transparency precedent as `stats.sourceErrors` - CV and cover-letter generation are now independent quotas (previously
+      one combined `doc_gen` metric) — `consumeDocGenQuota(userId, docType)` - `payg` is reserved only — added to the plan enum/type with zero logic
+      behind it; `quota.ts` explicitly blocks all metered actions for payg
+      (throws for search/doc-gen, `{allowed:false}` for scoring) rather than
+      allowing unlimited usage. No Stripe/billing/webhook/payment code
+      anywhere in this change - No automatic Pro → Free reversion (no billing events to hook into
+      without real Stripe) — confirmed as a deliberate, manual
+      `set-user-plan.ts <userId> free` action, same as granting any plan - Admin: `scripts/set-user-plan.ts <userId> free|pro|trusted|payg` - Verified: migration applied clean (`user_settings` plan values
+      confirmed `free`/`trusted` post-rename, constraint and default
+      confirmed, all 8 `quota_overrides` rows confirmed seeded); new
+      `quota.test.ts` (8 tests) + `job-search.score-quota.test.ts` (1 test,
+      proves the backstop end-to-end through real `scoreMatchForJob`, not
+      just the quota function in isolation) — 15 files / 64 tests passed
+      across 3 consecutive full-suite runs, confirming a real cross-file
+      test race (two new test files mutating the same shared
+      `quota_overrides` row concurrently) was actually fixed, not just
+      patched over; root-level `pnpm typecheck` and `pnpm lint` clean across
+      both workspaces
 - [ ] Deploy to Railway or Render — real hosting, Postgres + Redis + API +
       worker + web, before payments go live
 - [ ] Stripe one-time payment gating access (not subscription for v1)

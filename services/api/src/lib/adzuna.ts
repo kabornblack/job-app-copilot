@@ -79,7 +79,13 @@ export async function searchAdzuna(
     );
   }
 
-  const query = [...profile.targetRoles, ...profile.skills]
+  // what= is built from targetRoles only, not skills. Adzuna's `what` param
+  // narrows results the more terms it contains, so folding in a full skills
+  // list (often 15-25+ terms) turns this into an overly specific query that
+  // reliably returns zero results. profile.skills is intentionally unused
+  // here - it's still passed to Claude's scoring prompt in full elsewhere
+  // (claude-score.ts), this only affects what gets sent to Adzuna's search.
+  const query = profile.targetRoles
     .map((term) => term.trim())
     .filter(Boolean)
     .join(" ");

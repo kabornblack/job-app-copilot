@@ -2,6 +2,11 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/client";
 import { searchRuns } from "../db/schema";
 
+export type SourceError = {
+  source: string;
+  message: string;
+};
+
 export type SearchRunStats = {
   profileReused: boolean;
   jobsSeen: number;
@@ -13,6 +18,22 @@ export type SearchRunStats = {
   scoreJobsEnqueued: number;
   scoreJobsFinished: number;
   scoreJobsFailed: number;
+  /**
+   * Per-source ingest failures (e.g. Adzuna/Jooble rejecting or returning
+   * non-2xx) captured by ingestJobsForProfile. A run can be `status:
+   * completed` with jobsSeen: 0 for two different reasons - genuinely zero
+   * results, or a source silently failing - and before this field existed
+   * those were indistinguishable after the fact. Always an array (possibly
+   * empty), never absent, once a run has gone through ingest.
+   */
+  sourceErrors: SourceError[];
+  /**
+   * How many enqueued jobs never got scored because consumeScoreCallQuota's
+   * monthly safety backstop was hit mid-run (quota.ts). The run still
+   * completes normally with whatever matches it did create - this is just
+   * visibility into the skip, same transparency reasoning as sourceErrors.
+   */
+  scoreJobsQuotaSkipped: number;
 };
 
 export function emptySearchRunStats(
@@ -29,6 +50,8 @@ export function emptySearchRunStats(
     scoreJobsEnqueued: 0,
     scoreJobsFinished: 0,
     scoreJobsFailed: 0,
+    sourceErrors: [],
+    scoreJobsQuotaSkipped: 0,
   };
 }
 
@@ -95,6 +118,13 @@ type ScoreDelta = {
   applicationsCreated?: number;
   claudeCalls?: number;
   failed?: boolean;
+  /**
+   * True when this job was skipped by consumeScoreCallQuota's safety
+   * backstop rather than actually failing. Counts toward scoreJobsFinished
+   * (so the run still reaches completion) but never toward scoreJobsFailed -
+   * a quota skip must not fail the whole run, per the approved plan.
+   */
+  quotaSkipped?: boolean;
 };
 
 /**
@@ -129,6 +159,9 @@ export async function recordScoreMatchProgress(
     stats.scoreJobsFinished += 1;
     if (delta.failed) {
       stats.scoreJobsFailed += 1;
+    }
+    if (delta.quotaSkipped) {
+      stats.scoreJobsQuotaSkipped += 1;
     }
 
     const done =

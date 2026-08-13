@@ -17,6 +17,7 @@ import {
   generateEmbedding,
 } from "./embeddings";
 import { searchJooble } from "./jooble";
+import { consumeScoreCallQuota } from "./quota";
 import type { ResolvedProfile } from "./resolve-profile";
 import { scoreProfileJob } from "./score";
 
@@ -81,7 +82,10 @@ export type ScoreMatchResult = {
   matchesReused: number;
   applicationsCreated: number;
   claudeCalls: number;
-  result: JobSearchResultItem;
+  result: JobSearchResultItem | null;
+  /** True when consumeScoreCallQuota's monthly safety backstop was hit and
+   * this job was skipped rather than scored - result is null in that case. */
+  quotaSkipped: boolean;
 };
 
 function toJobValues(listing: IngestJobListing) {
@@ -316,6 +320,20 @@ export async function scoreMatchForJob(options: {
   if (match) {
     matchesReused = 1;
   } else {
+    // Scoring safety backstop: only consumed here, right before the Claude
+    // call that actually costs money - never for reused matches above.
+    const quota = await consumeScoreCallQuota(profile.userId);
+    if (!quota.allowed) {
+      return {
+        matchesCreated: 0,
+        matchesReused: 0,
+        applicationsCreated: 0,
+        claudeCalls: 0,
+        result: null,
+        quotaSkipped: true,
+      };
+    }
+
     const [similarityRow] = await db
       .select({
         similarity: sql<number>`1 - (${cosineDistance(jobs.embedding, profileEmbedding)})`,
@@ -410,6 +428,7 @@ export async function scoreMatchForJob(options: {
       status: existingApplication?.status ?? "found",
       scored,
     },
+    quotaSkipped: false,
   };
 }
 
@@ -447,7 +466,11 @@ export async function runJobSearch(options: {
     stats.matchesReused += scored.matchesReused;
     stats.applicationsCreated += scored.applicationsCreated;
     stats.claudeCalls += scored.claudeCalls;
-    results.push(scored.result);
+    // scored.result is null when the scoring safety backstop skipped this
+    // job (quotaSkipped) - nothing to add to results in that case.
+    if (scored.result) {
+      results.push(scored.result);
+    }
   }
 
   return {

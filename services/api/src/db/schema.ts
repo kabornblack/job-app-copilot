@@ -232,12 +232,15 @@ export const searchRuns = pgTable(
   }),
 );
 
-export const userPlanEnum = ["trial", "trusted"] as const;
+export const userPlanEnum = ["free", "pro", "trusted", "payg"] as const;
 export type UserPlan = (typeof userPlanEnum)[number];
 
 export const userSettings = pgTable("user_settings", {
   userId: uuid("user_id").primaryKey(),
-  plan: text("plan").notNull().default("trial"),
+  plan: text("plan").notNull().default("free"),
+  // Vestigial since the free/pro/trusted restructure (migration 0009) - free
+  // is a permanent tier now, not a time-boxed trial, so this is no longer
+  // read for expiry logic. Left in place rather than dropped (smaller diff).
   trialStartedAt: timestamp("trial_started_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -248,6 +251,30 @@ export const userSettings = pgTable("user_settings", {
     .notNull()
     .defaultNow(),
 });
+
+/**
+ * Editable-without-a-deploy quota numbers for the free/trusted plans
+ * (migration 0009 / ADR-pending: plan restructure). Pro's numbers are fixed
+ * code constants (QUOTA_LIMITS.pro in lib/quota.ts) and deliberately never
+ * have rows here. Same generic (key, key, value) shape as usageCounters.
+ */
+export const quotaOverrides = pgTable(
+  "quota_overrides",
+  {
+    plan: text("plan").notNull(),
+    metric: text("metric").notNull(),
+    limitValue: integer("limit_value").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({
+      name: "quota_overrides_pkey",
+      columns: [table.plan, table.metric],
+    }),
+  }),
+);
 
 export const usageCounters = pgTable(
   "usage_counters",

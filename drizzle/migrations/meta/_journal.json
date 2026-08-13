@@ -64,6 +64,13 @@
       "when": 1786564000000,
       "tag": "0008_skills_case_insensitive_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786568000000,
+      "tag": "0009_plan_free_pro_trusted",
+      "breakpoints": true
     }
   ]
 }

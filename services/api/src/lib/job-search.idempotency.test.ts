@@ -19,10 +19,22 @@ vi.mock("./claude-score", async () => {
 });
 
 import { db } from "../db/client";
-import { applications, jobs, matches, profiles } from "../db/schema";
+import {
+  applications,
+  jobs,
+  matches,
+  profiles,
+  usageCounters,
+  userSettings,
+} from "../db/schema";
 import { scoreMatchForJob } from "./job-search";
 
 const unique = `idempotency-${Date.now()}`;
+// scoreMatchForJob now consumes the scoring safety backstop (quota.ts) for
+// every non-reused match, which auto-creates a user_settings row (plan:
+// free) and usage_counters rows for this fixed test user_id as a side
+// effect - cleaned up below alongside the rest of this test's rows.
+const testUserId = "00000000-0000-4000-8000-000000000001";
 
 describe("scoreMatchForJob idempotency", () => {
   let profileId = "";
@@ -35,7 +47,7 @@ describe("scoreMatchForJob idempotency", () => {
     const [profile] = await db
       .insert(profiles)
       .values({
-        userId: "00000000-0000-4000-8000-000000000001",
+        userId: testUserId,
         version: 1,
         skills: ["React", "TypeScript"],
         targetRoles: ["Software Engineer"],
@@ -76,6 +88,8 @@ describe("scoreMatchForJob idempotency", () => {
     if (profileId) {
       await db.delete(profiles).where(eq(profiles.id, profileId));
     }
+    await db.delete(usageCounters).where(eq(usageCounters.userId, testUserId));
+    await db.delete(userSettings).where(eq(userSettings.userId, testUserId));
   });
 
   it("does not call Claude or double-insert when a match already exists", async () => {

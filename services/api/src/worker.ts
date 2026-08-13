@@ -109,6 +109,7 @@ const worker = new Worker(
           jobsSeen: ingest.jobsSeen,
           embeddingsCreated: ingest.embeddingsCreated,
           scoreJobsEnqueued: ingest.jobIds.length,
+          sourceErrors: ingest.sourceErrors,
         });
 
         if (ingest.jobIds.length === 0) {
@@ -190,6 +191,7 @@ const worker = new Worker(
           matchesReused: scored.matchesReused,
           applicationsCreated: scored.applicationsCreated,
           claudeCalls: scored.claudeCalls,
+          quotaSkipped: scored.quotaSkipped,
         });
 
         console.log(

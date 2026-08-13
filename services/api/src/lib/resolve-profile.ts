@@ -10,16 +10,29 @@ export type ResolveProfileResult = {
   profileReused: boolean;
 };
 
-export async function resolveActiveProfile(
-  incomingProfile: ProfileFields,
+/**
+ * The current active (isActive=true) profiles row for a user, or null if
+ * they've never searched yet. Factored out of resolveActiveProfile so
+ * GET /profile (index.ts) can read the same "what's active right now"
+ * logic without duplicating the query.
+ */
+export async function getActiveProfile(
   userId: string,
-): Promise<ResolveProfileResult> {
+): Promise<ResolvedProfile | null> {
   const [activeProfile] = await db
     .select()
     .from(profiles)
     .where(and(eq(profiles.userId, userId), eq(profiles.isActive, true)))
     .orderBy(desc(profiles.createdAt))
     .limit(1);
+  return activeProfile ?? null;
+}
+
+export async function resolveActiveProfile(
+  incomingProfile: ProfileFields,
+  userId: string,
+): Promise<ResolveProfileResult> {
+  const activeProfile = await getActiveProfile(userId);
 
   if (activeProfile && profileDataEquals(activeProfile, incomingProfile)) {
     return { profile: activeProfile, profileReused: true };
