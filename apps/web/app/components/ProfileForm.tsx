@@ -1,8 +1,9 @@
 "use client";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { apiFetch } from "../../lib/api";
 import { extractErrorMessage } from "../../lib/error-message";
 import { setHasProfileFlag } from "../../lib/profile-flag";
+import { getActiveSearchProfile } from "../../lib/search-profile-api";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -60,12 +61,49 @@ export default function ProfileForm({ onSearchComplete }: ProfileFormProps) {
     "info" | "error" | "warning" | "success"
   >("info");
   const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const parseList = (value: string) =>
     value
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean);
+
+  // Fetch-on-mount, same pattern as PersonalInfoTab.tsx/SkillsTab.tsx: real
+  // controlled state populated from the saved profile, not placeholder text.
+  // Runs again every time this tab is remounted (Radix TabsContent unmounts
+  // inactive panels by default), which is what makes switching tabs away
+  // and back correctly show the last-saved values instead of resetting.
+  useEffect(() => {
+    let cancelled = false;
+    getActiveSearchProfile()
+      .then((profile) => {
+        if (cancelled || !profile) {
+          return;
+        }
+        setSkills(profile.skills.join(", "));
+        setTargetRoles(profile.targetRoles.join(", "));
+        setLocations(profile.locations.join(", "));
+        setSalaryMin(profile.salaryMin != null ? String(profile.salaryMin) : "");
+        setSalaryMax(profile.salaryMax != null ? String(profile.salaryMax) : "");
+        setRemotePref(profile.remotePref ?? "any");
+        setResumeSummary(profile.resumeSummary ?? "");
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setStatusTone("error");
+          setStatus(err.message || "Failed to load saved profile");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const formatRunProgress = (run: SearchRunResponse) => {
     const stats = run.stats ?? {};
@@ -157,6 +195,10 @@ export default function ProfileForm({ onSearchComplete }: ProfileFormProps) {
       setSubmitting(false);
     }
   };
+
+  if (loading) {
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
+  }
 
   return (
     <Card size="sm">

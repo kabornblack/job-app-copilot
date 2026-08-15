@@ -33,7 +33,7 @@ import {
   type DocumentFormat,
   type TipTapDoc,
 } from "./lib/documents";
-import { resolveActiveProfile } from "./lib/resolve-profile";
+import { getActiveProfile, resolveActiveProfile } from "./lib/resolve-profile";
 import { emptySearchRunStats } from "./lib/search-runs";
 import { registerBullBoard } from "./queue/bull-board";
 import { getPipelineQueue } from "./queue/queues";
@@ -198,6 +198,15 @@ const statusSchema = z.object({
     "rejected",
     "withdrawn",
   ]),
+});
+
+server.get("/profile", async (request, reply) => {
+  const userId = request.user?.id;
+  if (!userId) {
+    return reply.status(401).send({ error: "Unauthorized" });
+  }
+  const profile = await getActiveProfile(userId);
+  return profile ?? {};
 });
 
 server.post("/jobs/search", async (request, reply) => {
@@ -430,7 +439,7 @@ server.post("/applications/:applicationId/generate", async (request, reply) => {
   const { type } = generateBodySchema.parse(request.body);
 
   try {
-    await consumeDocGenQuota(userId);
+    await consumeDocGenQuota(userId, type);
   } catch (error) {
     if (isQuotaExceededError(error)) {
       return reply.status(429).send(error.payload);
@@ -471,7 +480,7 @@ server.post("/jobs/:jobId/generate", async (request, reply) => {
   }
 
   try {
-    await consumeDocGenQuota(userId);
+    await consumeDocGenQuota(userId, type);
   } catch (error) {
     if (isQuotaExceededError(error)) {
       return reply.status(429).send(error.payload);

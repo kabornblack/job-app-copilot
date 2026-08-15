@@ -106,6 +106,37 @@ safe to build on — versus what's still pending.
       exist; post-application muted card + lifecycle select only - ReviewQueue client tabs: To review / Applied / Archived with counts - Verified app `fa6ec9a2-041a-4288-93a1-292a0df2df68` (Ebury Adzuna URL):
       transitions applied → interviewing → offer produced 3 history rows;
       noop same-status PATCH did not insert; `applied_at` set once and kept
+- [x] Hard location/remote eligibility gate applied before Claude scoring
+      (not a UI filter, not averaged into the score) - a job the candidate
+      can't actually take never reaches Claude and never appears in the
+      review queue, regardless of skills-match quality - Part A: fixed the `remote_type` ingestion mapping - adzuna.ts/jooble.ts
+      were writing employment-type fields (Adzuna `contract_type`, Jooble
+      `type`) into it, which never once recorded real remote status for any
+      job. New `remote-detection.ts` derives remote/hybrid from location +
+      description text instead (negation guard checked first, both fields) - Part B: new `location-gate.ts`'s `evaluateLocationGate`, wired into
+      `ingestJobsForProfile` right before `jobIds.push` - gated jobs are
+      still upserted/embedded (shared data) but never enqueued for scoring.
+      Fully remote passes regardless of location; hybrid only passes on a
+      location match (still requires physical presence); genuinely unclear
+      + no location match is hidden by default, not shown flagged-as-uncertain - Part C: fixed a real Jooble API quirk found while investigating - a bare
+      ambiguous city name (e.g. "London") silently resolves to a same-named
+      US town ("London, KY") instead of erroring. `isUntrustedUsStateResolution`
+      nulls out any such resolution rather than trust it as location data - `search_runs.stats.jobsGatedByLocation` added for visibility, same
+      transparency precedent as `stats.sourceErrors`/`scoreJobsQuotaSkipped` - Verified with real data at every stage, not unit tests in isolation:
+      real before/after remote_type against 15 actual stored jobs (Part A);
+      a live 15-job Adzuna batch for the real candidate profile, in which
+      the exact "Full Stack Engineer, AI systems" (London) listing that
+      originally triggered this investigation - scored 72/Strong Match
+      despite its own explanation calling location "a potential
+      deal-breaker" - is confirmed still live on Adzuna and now correctly
+      gated before scoring (Part B); the real Jooble Kentucky bug reproduced
+      live against the real API and confirmed fixed (4/4 previously
+      "Public, KY"/"London, KY" results now correctly null) (Part C) - full
+      suite (services/api 18 files / 89 tests, apps/web 2 files / 12 tests)
+      clean across repeated runs, root typecheck/lint clean
+- Does NOT retroactively touch the 111 existing matches/applications
+      identified as would-be-gated by this rule - separate decision,
+      deliberately not made yet; they remain in the review queue as-is
 
 ## Phase 3 - Background processing + scheduling - COMPLETE
 
@@ -183,13 +214,45 @@ for a closed group (~5 friends), one-time-fee access.
       `a1bca142-…` (Alpha); B queue only `bda4a49c-…` (Beta); B PATCH A’s
       applicationId → `404 {"error":"Application not found"}`; A PATCH
       own → `200` status reviewing
-- [x] Per-user usage quotas (plan-based: trial vs trusted) to protect shared
-      API keys (Adzuna/Claude/OpenAI) from runaway cost across multiple users - Migration `0006_usage_quotas`: `user_settings` (plan default `trial`,
-      `trial_started_at`) + `usage_counters` - trusted: 50 searches/day, 100 doc-gens/month; trial: 2 searches/day,
-      10 searches total + 5 doc-gens total in 14-day window - `POST /jobs/search` + generate routes + cron consume quota; `429`
-      `{ code: QUOTA_EXCEEDED, … }` with plan-specific messages - Admin: `scripts/set-user-plan.ts <userId> trusted|trial` - Verified: trusted 3 consumes + HTTP search `202` past trial daily;
-      trial 3rd search → `429` "Daily search limit reached (2/day).";
-      trial at 10 total → `429` "Trial search limit reached (10 total)."
+- [x] Per-user usage quotas (plan-based: free/pro/trusted, payg reserved) to
+      protect shared API keys (Adzuna/Claude/OpenAI) from runaway cost across
+      multiple users — supersedes the original trial/trusted design below - Migration `0009_plan_free_pro_trusted`: renames existing `trial` rows to
+      `free` (permanent tier now, no expiry — `trialExpired`/
+      `TRIAL_WINDOW_DAYS` removed from `quota.ts`; `trial_started_at`
+      column left in place unused rather than dropped); widens the
+      `user_settings.plan` CHECK to `free|pro|trusted|payg`; adds
+      `quota_overrides` (plan, metric) → limit_value, seeded with free/
+      trusted's numbers - Free: 1 search/week, 1 CV/day, 1 cover letter/day, 40 scoring calls/
+      month (safety backstop). Pro (fixed code constants, not editable):
+      5 searches/day, 20 CV/month, 20 cover letters/month, 300 scoring
+      calls/month. Trusted: 2 searches/day, 8 CV/month, 8 cover letters/
+      month, 100 scoring calls/month - Free and Trusted's numbers are editable via `quota_overrides` without a
+      deploy (plain `UPDATE`); Pro's stay hardcoded in `quota.ts` on purpose
+      so a paying user's allowance can't silently change under them - New scoring safety backstop (`consumeScoreCallQuota`, all three tiers)
+      is distinct from the per-day search cap and per-month generation cap —
+      guards against one broad query matching an unusually large number of
+      postings. Not user-facing: never throws, checked in `scoreMatchForJob`
+      right before the Claude call (never for reused matches); when hit,
+      remaining jobs are skipped gracefully and the run still completes —
+      surfaced via new `search_runs.stats.scoreJobsQuotaSkipped` rather than
+      an error, same transparency precedent as `stats.sourceErrors` - CV and cover-letter generation are now independent quotas (previously
+      one combined `doc_gen` metric) — `consumeDocGenQuota(userId, docType)` - `payg` is reserved only — added to the plan enum/type with zero logic
+      behind it; `quota.ts` explicitly blocks all metered actions for payg
+      (throws for search/doc-gen, `{allowed:false}` for scoring) rather than
+      allowing unlimited usage. No Stripe/billing/webhook/payment code
+      anywhere in this change - No automatic Pro → Free reversion (no billing events to hook into
+      without real Stripe) — confirmed as a deliberate, manual
+      `set-user-plan.ts <userId> free` action, same as granting any plan - Admin: `scripts/set-user-plan.ts <userId> free|pro|trusted|payg` - Verified: migration applied clean (`user_settings` plan values
+      confirmed `free`/`trusted` post-rename, constraint and default
+      confirmed, all 8 `quota_overrides` rows confirmed seeded); new
+      `quota.test.ts` (8 tests) + `job-search.score-quota.test.ts` (1 test,
+      proves the backstop end-to-end through real `scoreMatchForJob`, not
+      just the quota function in isolation) — 15 files / 64 tests passed
+      across 3 consecutive full-suite runs, confirming a real cross-file
+      test race (two new test files mutating the same shared
+      `quota_overrides` row concurrently) was actually fixed, not just
+      patched over; root-level `pnpm typecheck` and `pnpm lint` clean across
+      both workspaces
 - [ ] Deploy to Railway or Render — real hosting, Postgres + Redis + API +
       worker + web, before payments go live
 - [ ] Stripe one-time payment gating access (not subscription for v1)

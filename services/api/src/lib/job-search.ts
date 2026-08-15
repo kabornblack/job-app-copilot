@@ -17,6 +17,8 @@ import {
   generateEmbedding,
 } from "./embeddings";
 import { searchJooble } from "./jooble";
+import { evaluateLocationGate } from "./location-gate";
+import { consumeScoreCallQuota } from "./quota";
 import type { ResolvedProfile } from "./resolve-profile";
 import { scoreProfileJob } from "./score";
 
@@ -64,6 +66,9 @@ export type IngestJobsResult = {
   jobIds: string[];
   jobsSeen: number;
   embeddingsCreated: number;
+  /** Jobs upserted/embedded but excluded from jobIds by the location/
+   * remote hard gate (location-gate.ts) - never enqueued for scoring. */
+  jobsGatedByLocation: number;
   profileEmbedding: number[];
   sourceErrors: { source: string; message: string }[];
   adzunaDebug: {
@@ -81,7 +86,10 @@ export type ScoreMatchResult = {
   matchesReused: number;
   applicationsCreated: number;
   claudeCalls: number;
-  result: JobSearchResultItem;
+  result: JobSearchResultItem | null;
+  /** True when consumeScoreCallQuota's monthly safety backstop was hit and
+   * this job was skipped rather than scored - result is null in that case. */
+  quotaSkipped: boolean;
 };
 
 function toJobValues(listing: IngestJobListing) {
@@ -235,6 +243,7 @@ export async function ingestJobsForProfile(
   const seenJobIds = new Set<string>();
   let jobsSeen = 0;
   let embeddingsCreated = 0;
+  let jobsGatedByLocation = 0;
 
   for (const listing of listings) {
     jobsSeen += 1;
@@ -248,6 +257,10 @@ export async function ingestJobsForProfile(
       throw new Error(`Job missing after upsert: ${upserted.jobId}`);
     }
 
+    // Embedding generation stays unconditional even for jobs the location
+    // gate below will exclude - it's a property of the job itself (shared,
+    // reusable across every future profile that ever ingests this same
+    // listing), not a cost specific to this candidate's search.
     if (!job.embedding) {
       const jobEmbedding = await generateEmbedding(
         buildJobEmbeddingText({
@@ -264,16 +277,31 @@ export async function ingestJobsForProfile(
       embeddingsCreated += 1;
     }
 
-    if (!seenJobIds.has(job.id)) {
-      seenJobIds.add(job.id);
-      jobIds.push(job.id);
+    if (seenJobIds.has(job.id)) {
+      continue;
     }
+    seenJobIds.add(job.id);
+
+    // Location/remote hard gate - applied here, before jobIds.push, so a
+    // job the candidate can't actually take never gets a score-match job
+    // enqueued and never costs a Claude call, regardless of skills match.
+    const gate = evaluateLocationGate(
+      { location: job.location, remoteType: job.remoteType },
+      profile.locations,
+    );
+    if (!gate.passes) {
+      jobsGatedByLocation += 1;
+      continue;
+    }
+
+    jobIds.push(job.id);
   }
 
   return {
     jobIds,
     jobsSeen,
     embeddingsCreated,
+    jobsGatedByLocation,
     profileEmbedding,
     sourceErrors,
     adzunaDebug,
@@ -316,6 +344,20 @@ export async function scoreMatchForJob(options: {
   if (match) {
     matchesReused = 1;
   } else {
+    // Scoring safety backstop: only consumed here, right before the Claude
+    // call that actually costs money - never for reused matches above.
+    const quota = await consumeScoreCallQuota(profile.userId);
+    if (!quota.allowed) {
+      return {
+        matchesCreated: 0,
+        matchesReused: 0,
+        applicationsCreated: 0,
+        claudeCalls: 0,
+        result: null,
+        quotaSkipped: true,
+      };
+    }
+
     const [similarityRow] = await db
       .select({
         similarity: sql<number>`1 - (${cosineDistance(jobs.embedding, profileEmbedding)})`,
@@ -410,6 +452,7 @@ export async function scoreMatchForJob(options: {
       status: existingApplication?.status ?? "found",
       scored,
     },
+    quotaSkipped: false,
   };
 }
 
@@ -425,6 +468,7 @@ export async function runJobSearch(options: {
   adzunaDebug: { requestUrl: string; rawResponse: string } | null;
   joobleDebug: { requestUrl: string; rawResponse: string } | null;
   sourceErrors: { source: string; message: string }[];
+  jobsGatedByLocation: number;
 }> {
   const { profile, profileReused } = options;
   const ingest = await ingestJobsForProfile(profile);
@@ -447,7 +491,11 @@ export async function runJobSearch(options: {
     stats.matchesReused += scored.matchesReused;
     stats.applicationsCreated += scored.applicationsCreated;
     stats.claudeCalls += scored.claudeCalls;
-    results.push(scored.result);
+    // scored.result is null when the scoring safety backstop skipped this
+    // job (quotaSkipped) - nothing to add to results in that case.
+    if (scored.result) {
+      results.push(scored.result);
+    }
   }
 
   return {
@@ -458,5 +506,6 @@ export async function runJobSearch(options: {
     adzunaDebug: ingest.adzunaDebug,
     joobleDebug: ingest.joobleDebug,
     sourceErrors: ingest.sourceErrors,
+    jobsGatedByLocation: ingest.jobsGatedByLocation,
   };
 }
