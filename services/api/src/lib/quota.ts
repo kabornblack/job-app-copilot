@@ -62,11 +62,23 @@ export class QuotaExceededError extends Error {
 
 const METRIC_SEARCH_WEEKLY = "search_weekly";
 const METRIC_SEARCH_DAILY = "search_daily";
+const METRIC_SEARCH_CRON_DAILY = "search_cron_daily";
 const METRIC_CV_GEN_DAILY = "cv_gen_daily";
 const METRIC_COVER_LETTER_GEN_DAILY = "cover_letter_gen_daily";
 const METRIC_CV_GEN_MONTHLY = "cv_gen_monthly";
 const METRIC_COVER_LETTER_GEN_MONTHLY = "cover_letter_gen_monthly";
 const METRIC_SCORE_CALLS_MONTHLY = "score_calls_monthly";
+
+/**
+ * Cron's own daily allowance, entirely separate from consumeSearchQuota's
+ * manual search_daily counter - a background refresh must never be able to
+ * eat into a user's own manual search budget (the exact bug this fixes: a
+ * scheduler misfire silently consumed 2/2 of a trusted user's manual daily
+ * searches with zero manual action). Same fixed-safety-cap treatment as
+ * QUOTA_LIMITS - not plan-tiered, not admin-editable via quota_overrides,
+ * since it's a backstop, not a plan feature.
+ */
+export const CRON_SEARCH_DAILY_LIMIT = 1;
 
 function normalizePlan(value: string): UserPlan {
   if (value === "pro" || value === "trusted" || value === "payg") {
@@ -293,6 +305,45 @@ export async function consumeSearchQuota(userId: string): Promise<void> {
   if (next === null) {
     throw new QuotaExceededError({
       error: `Daily search limit reached (${limit}/day).`,
+      code: "QUOTA_EXCEEDED",
+      metric: "search",
+      limit,
+      used,
+      resetsAt: endOfUtcDayIso(period),
+      plan,
+    });
+  }
+}
+
+/**
+ * Cron's own quota, separate from and never touching consumeSearchQuota's
+ * manual counter (enqueueCronSearchIfActiveProfile calls this instead of
+ * consumeSearchQuota, not in addition to it). Fixed 1/day for every plan -
+ * not plan-tiered, since this is a safety backstop against the daily
+ * scheduler ever firing more than once in a day, not a plan feature.
+ */
+export async function consumeCronSearchQuota(userId: string): Promise<void> {
+  const settings = await ensureUserSettings(userId);
+  const plan = normalizePlan(settings.plan);
+
+  if (plan === "payg") {
+    throw new Error(
+      "payg plan has no metering implemented yet - cannot consume cron search quota",
+    );
+  }
+
+  const limit = CRON_SEARCH_DAILY_LIMIT;
+  const period = utcToday();
+  const used = await readCounter(userId, METRIC_SEARCH_CRON_DAILY, period);
+  const next = await tryIncrementCounter(
+    userId,
+    METRIC_SEARCH_CRON_DAILY,
+    period,
+    limit,
+  );
+  if (next === null) {
+    throw new QuotaExceededError({
+      error: `Daily cron search limit reached (${limit}/day).`,
       code: "QUOTA_EXCEEDED",
       metric: "search",
       limit,

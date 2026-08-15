@@ -7,9 +7,11 @@ import {
   userSettings,
 } from "../db/schema";
 import {
+  CRON_SEARCH_DAILY_LIMIT,
   DEFAULT_QUOTA_LIMITS,
   QUOTA_LIMITS,
   QuotaExceededError,
+  consumeCronSearchQuota,
   consumeDocGenQuota,
   consumeScoreCallQuota,
   consumeSearchQuota,
@@ -23,7 +25,8 @@ const freeUserId = "00000000-0000-4000-8000-0000000000f1";
 const proUserId = "00000000-0000-4000-8000-0000000000f2";
 const trustedUserId = "00000000-0000-4000-8000-0000000000f3";
 const paygUserId = "00000000-0000-4000-8000-0000000000f4";
-const allTestUserIds = [freeUserId, proUserId, trustedUserId, paygUserId];
+const cronUserId = "00000000-0000-4000-8000-0000000000f6";
+const allTestUserIds = [freeUserId, proUserId, trustedUserId, paygUserId, cronUserId];
 
 async function overrideLimit(
   plan: string,
@@ -171,6 +174,44 @@ describe("trusted plan (respects quota_overrides edits)", () => {
     expect(third.allowed).toBe(false); // would be allowed under the real 100 default
 
     await overrideLimit("trusted", "score_calls_monthly", 100);
+  });
+});
+
+describe("consumeCronSearchQuota (separate from consumeSearchQuota's manual counter)", () => {
+  it("allows exactly 1/day, is fully independent from the manual search_daily counter, and is fixed regardless of plan", async () => {
+    await setUserPlan(cronUserId, "trusted");
+
+    // Exhaust the manual counter first (trusted default: 2/day), using
+    // actual manual-quota calls.
+    await consumeSearchQuota(cronUserId);
+    await consumeSearchQuota(cronUserId);
+    await expect(consumeSearchQuota(cronUserId)).rejects.toThrow(
+      QuotaExceededError,
+    );
+
+    // The cron counter must be completely untouched by the manual
+    // exhaustion above - this is the exact guarantee that fixes the real
+    // bug (cron silently consuming the user's manual budget).
+    await expect(
+      consumeCronSearchQuota(cronUserId),
+    ).resolves.toBeUndefined();
+
+    // Cron's own 1/day cap still applies, independently.
+    await expect(consumeCronSearchQuota(cronUserId)).rejects.toThrow(
+      QuotaExceededError,
+    );
+    try {
+      await consumeCronSearchQuota(cronUserId);
+    } catch (err) {
+      const payload = (err as QuotaExceededError).payload;
+      expect(payload.limit).toBe(CRON_SEARCH_DAILY_LIMIT);
+      expect(payload.limit).toBe(1);
+    }
+  });
+
+  it("blocks payg rather than allowing unlimited cron usage", async () => {
+    await setUserPlan(cronUserId, "payg");
+    await expect(consumeCronSearchQuota(cronUserId)).rejects.toThrow();
   });
 });
 
