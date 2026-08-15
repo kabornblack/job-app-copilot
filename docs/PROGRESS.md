@@ -106,6 +106,37 @@ safe to build on — versus what's still pending.
       exist; post-application muted card + lifecycle select only - ReviewQueue client tabs: To review / Applied / Archived with counts - Verified app `fa6ec9a2-041a-4288-93a1-292a0df2df68` (Ebury Adzuna URL):
       transitions applied → interviewing → offer produced 3 history rows;
       noop same-status PATCH did not insert; `applied_at` set once and kept
+- [x] Hard location/remote eligibility gate applied before Claude scoring
+      (not a UI filter, not averaged into the score) - a job the candidate
+      can't actually take never reaches Claude and never appears in the
+      review queue, regardless of skills-match quality - Part A: fixed the `remote_type` ingestion mapping - adzuna.ts/jooble.ts
+      were writing employment-type fields (Adzuna `contract_type`, Jooble
+      `type`) into it, which never once recorded real remote status for any
+      job. New `remote-detection.ts` derives remote/hybrid from location +
+      description text instead (negation guard checked first, both fields) - Part B: new `location-gate.ts`'s `evaluateLocationGate`, wired into
+      `ingestJobsForProfile` right before `jobIds.push` - gated jobs are
+      still upserted/embedded (shared data) but never enqueued for scoring.
+      Fully remote passes regardless of location; hybrid only passes on a
+      location match (still requires physical presence); genuinely unclear
+      + no location match is hidden by default, not shown flagged-as-uncertain - Part C: fixed a real Jooble API quirk found while investigating - a bare
+      ambiguous city name (e.g. "London") silently resolves to a same-named
+      US town ("London, KY") instead of erroring. `isUntrustedUsStateResolution`
+      nulls out any such resolution rather than trust it as location data - `search_runs.stats.jobsGatedByLocation` added for visibility, same
+      transparency precedent as `stats.sourceErrors`/`scoreJobsQuotaSkipped` - Verified with real data at every stage, not unit tests in isolation:
+      real before/after remote_type against 15 actual stored jobs (Part A);
+      a live 15-job Adzuna batch for the real candidate profile, in which
+      the exact "Full Stack Engineer, AI systems" (London) listing that
+      originally triggered this investigation - scored 72/Strong Match
+      despite its own explanation calling location "a potential
+      deal-breaker" - is confirmed still live on Adzuna and now correctly
+      gated before scoring (Part B); the real Jooble Kentucky bug reproduced
+      live against the real API and confirmed fixed (4/4 previously
+      "Public, KY"/"London, KY" results now correctly null) (Part C) - full
+      suite (services/api 18 files / 89 tests, apps/web 2 files / 12 tests)
+      clean across repeated runs, root typecheck/lint clean
+- Does NOT retroactively touch the 111 existing matches/applications
+      identified as would-be-gated by this rule - separate decision,
+      deliberately not made yet; they remain in the review queue as-is
 
 ## Phase 3 - Background processing + scheduling - COMPLETE
 

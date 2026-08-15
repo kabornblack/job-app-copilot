@@ -110,6 +110,7 @@ const worker = new Worker(
           embeddingsCreated: ingest.embeddingsCreated,
           scoreJobsEnqueued: ingest.jobIds.length,
           sourceErrors: ingest.sourceErrors,
+          jobsGatedByLocation: ingest.jobsGatedByLocation,
         });
 
         if (ingest.jobIds.length === 0) {

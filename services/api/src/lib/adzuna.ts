@@ -1,4 +1,5 @@
 import { computeJobFingerprint } from "./job-fingerprint";
+import { deriveRemoteType } from "./remote-detection";
 import { captureProviderError } from "./sentry";
 
 export interface AdzunaProfile {
@@ -41,7 +42,11 @@ export function parseAdzunaResult(result: AdzunaResult): AdzunaJob {
   const title = result.title?.trim() ?? "Unknown title";
   const company = result.company?.display_name?.trim() ?? "Unknown company";
   const location = result.location?.display_name?.trim() ?? null;
-  const remoteType = result.contract_type?.trim() ?? null;
+  const description = result.description ?? null;
+  // result.contract_type is employment type (permanent/contract), not
+  // remote status - Adzuna has no genuine structured remote-status field
+  // in the shape we parse, so this is derived from text instead.
+  const remoteType = deriveRemoteType({ location, description });
   const externalId = result.id;
   const fingerprint = computeJobFingerprint({ title, company, location });
 
@@ -55,7 +60,7 @@ export function parseAdzunaResult(result: AdzunaResult): AdzunaJob {
     remoteType,
     salaryMin: result.salary_min ?? null,
     salaryMax: result.salary_max ?? null,
-    description: result.description ?? null,
+    description,
     url: result.redirect_url,
     postedAt: result.created ?? null,
   };

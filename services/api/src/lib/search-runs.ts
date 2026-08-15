@@ -34,6 +34,13 @@ export type SearchRunStats = {
    * visibility into the skip, same transparency reasoning as sourceErrors.
    */
   scoreJobsQuotaSkipped: number;
+  /**
+   * Jobs excluded by the location/remote hard gate (location-gate.ts) -
+   * upserted/embedded but never enqueued for scoring, so they never cost a
+   * Claude call and never appear in the review queue. Visibility only, same
+   * transparency reasoning as sourceErrors/scoreJobsQuotaSkipped.
+   */
+  jobsGatedByLocation: number;
 };
 
 export function emptySearchRunStats(
@@ -52,6 +59,7 @@ export function emptySearchRunStats(
     scoreJobsFailed: 0,
     sourceErrors: [],
     scoreJobsQuotaSkipped: 0,
+    jobsGatedByLocation: 0,
   };
 }
 

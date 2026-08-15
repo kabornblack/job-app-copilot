@@ -17,6 +17,7 @@ import {
   generateEmbedding,
 } from "./embeddings";
 import { searchJooble } from "./jooble";
+import { evaluateLocationGate } from "./location-gate";
 import { consumeScoreCallQuota } from "./quota";
 import type { ResolvedProfile } from "./resolve-profile";
 import { scoreProfileJob } from "./score";
@@ -65,6 +66,9 @@ export type IngestJobsResult = {
   jobIds: string[];
   jobsSeen: number;
   embeddingsCreated: number;
+  /** Jobs upserted/embedded but excluded from jobIds by the location/
+   * remote hard gate (location-gate.ts) - never enqueued for scoring. */
+  jobsGatedByLocation: number;
   profileEmbedding: number[];
   sourceErrors: { source: string; message: string }[];
   adzunaDebug: {
@@ -239,6 +243,7 @@ export async function ingestJobsForProfile(
   const seenJobIds = new Set<string>();
   let jobsSeen = 0;
   let embeddingsCreated = 0;
+  let jobsGatedByLocation = 0;
 
   for (const listing of listings) {
     jobsSeen += 1;
@@ -252,6 +257,10 @@ export async function ingestJobsForProfile(
       throw new Error(`Job missing after upsert: ${upserted.jobId}`);
     }
 
+    // Embedding generation stays unconditional even for jobs the location
+    // gate below will exclude - it's a property of the job itself (shared,
+    // reusable across every future profile that ever ingests this same
+    // listing), not a cost specific to this candidate's search.
     if (!job.embedding) {
       const jobEmbedding = await generateEmbedding(
         buildJobEmbeddingText({
@@ -268,16 +277,31 @@ export async function ingestJobsForProfile(
       embeddingsCreated += 1;
     }
 
-    if (!seenJobIds.has(job.id)) {
-      seenJobIds.add(job.id);
-      jobIds.push(job.id);
+    if (seenJobIds.has(job.id)) {
+      continue;
     }
+    seenJobIds.add(job.id);
+
+    // Location/remote hard gate - applied here, before jobIds.push, so a
+    // job the candidate can't actually take never gets a score-match job
+    // enqueued and never costs a Claude call, regardless of skills match.
+    const gate = evaluateLocationGate(
+      { location: job.location, remoteType: job.remoteType },
+      profile.locations,
+    );
+    if (!gate.passes) {
+      jobsGatedByLocation += 1;
+      continue;
+    }
+
+    jobIds.push(job.id);
   }
 
   return {
     jobIds,
     jobsSeen,
     embeddingsCreated,
+    jobsGatedByLocation,
     profileEmbedding,
     sourceErrors,
     adzunaDebug,
@@ -444,6 +468,7 @@ export async function runJobSearch(options: {
   adzunaDebug: { requestUrl: string; rawResponse: string } | null;
   joobleDebug: { requestUrl: string; rawResponse: string } | null;
   sourceErrors: { source: string; message: string }[];
+  jobsGatedByLocation: number;
 }> {
   const { profile, profileReused } = options;
   const ingest = await ingestJobsForProfile(profile);
@@ -481,5 +506,6 @@ export async function runJobSearch(options: {
     adzunaDebug: ingest.adzunaDebug,
     joobleDebug: ingest.joobleDebug,
     sourceErrors: ingest.sourceErrors,
+    jobsGatedByLocation: ingest.jobsGatedByLocation,
   };
 }
