@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import type { Queue } from "bullmq";
 import { db } from "../db/client";
 import { profiles, searchRuns } from "../db/schema";
-import { consumeSearchQuota, isQuotaExceededError } from "./quota";
+import { consumeCronSearchQuota, isQuotaExceededError } from "./quota";
 import { emptySearchRunStats } from "./search-runs";
 
 export type CronEnqueueResult =
@@ -41,7 +41,9 @@ export async function enqueueCronSearchIfActiveProfile(
 
   for (const activeProfile of activeProfiles) {
     try {
-      await consumeSearchQuota(activeProfile.userId);
+      // Cron's own separate allowance - never draws from the user's manual
+      // search_daily budget. See quota.ts's consumeCronSearchQuota.
+      await consumeCronSearchQuota(activeProfile.userId);
     } catch (error) {
       if (isQuotaExceededError(error)) {
         skippedQuotaUserIds.push(activeProfile.userId);
