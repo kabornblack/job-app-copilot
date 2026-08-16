@@ -123,7 +123,15 @@ export async function generateClaudeText(
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
-      max_tokens: 450,
+      // 450 was sized for the old resumeSummary-only prompt and never
+      // revisited when the Phase 7 Stage 3 / ADR-0005 redesign made both
+      // the input AND expected output meaningfully larger - confirmed via
+      // a real generation call returning stop_reason: "max_tokens" (see
+      // git history / investigation notes for this change). 4096 is a
+      // generous ceiling for a full tailored CV/cover letter from someone
+      // with several work-experience entries, while staying well under
+      // the point where non-streaming requests risk HTTP timeouts.
+      max_tokens: 4096,
       messages: [{ role: "user", content: prompt }],
     }),
   });
@@ -151,6 +159,23 @@ export async function generateClaudeText(
       reason: "invalid_json",
     });
     throw error;
+  }
+
+  // Transparency over silent failure (same pattern as search_runs.stats.
+  // sourceErrors elsewhere in this codebase): stop_reason "max_tokens"
+  // means the response was cut off mid-generation, not that it finished
+  // naturally ("end_turn"). Log it so truncation is visible instead of
+  // only showing up later as a cut-off document with no diagnostic trail.
+  const stopReason =
+    payload?.stop_reason ?? payload?.response?.stop_reason ?? null;
+  if (stopReason === "max_tokens") {
+    console.warn(
+      JSON.stringify({
+        event: "claude.generation_truncated",
+        type,
+        stopReason,
+      }),
+    );
   }
 
   const text =
