@@ -48,6 +48,9 @@ import { emptySearchRunStats } from "./lib/search-runs";
 import { registerBullBoard } from "./queue/bull-board";
 import { getPipelineQueue } from "./queue/queues";
 import profileKnowledgeRoutes from "./routes/profile-knowledge";
+import adminRoutes from "./routes/admin";
+import inviteRoutes from "./routes/invites";
+import { isAlreadyProError } from "./lib/invites";
 
 initSentry("api");
 
@@ -139,6 +142,10 @@ server.setErrorHandler(async (error, request, reply) => {
   }
 
   if (isDuplicateSkillError(error)) {
+    return reply.status(400).send({ error: error.message });
+  }
+
+  if (isAlreadyProError(error)) {
     return reply.status(400).send({ error: error.message });
   }
 
@@ -806,6 +813,8 @@ server.patch("/applications/:applicationId/status", async (request, reply) => {
 });
 
 await server.register(profileKnowledgeRoutes);
+await server.register(adminRoutes);
+await server.register(inviteRoutes);
 
 const start = async () => {
   try {

@@ -408,6 +408,83 @@ optional PDF CV upload. See ADR-0005, which supersedes ADR-0004's original
   content. No code change needed beyond the constant — `buildPrompt`,
   `profile-serialization.ts`, and the CV-priority logic were all already
   correct; only the output ceiling was wrong.
+- **Post-Stage-3 fix #2**: cover-letter generation was reusing the CV
+  path's exact closing instruction ("...using resume-style sections such
+  as Summary, Skills, and Experience"), so cover letters came out
+  resume-shaped — section headers, a redundant "Cover Letter" heading, a
+  near-full restatement of work history. Fixed with a distinct
+  `formatInstruction(type)` in `claude.ts`: cover letters now get an
+  explicit narrative-letter instruction (no section headers, 3-4
+  paragraphs, ~250-350 words, standard salutation/sign-off). CV path
+  unchanged. Verified on a real regeneration against a real application:
+  before 3105 chars/resume-shaped, after 1791 chars/269 words/zero section
+  headers, persisted to the real `generated_documents` row.
+
+## Phase 8 — Admin access & trusted invites — COMPLETE
+
+Read-only admin user list (plan + usage vs. limit per metric) and a
+Trusted-plan invite mechanism, admin-issued. See ADR-0006.
+
+- [x] `user_settings.is_admin` (migration `0011`), settable only via
+      `scripts/set-admin.ts` (never a route/UI) — same pattern as
+      `set-user-plan.ts`
+- [x] `requireAdmin` (`lib/auth.ts`): per-route Fastify hook (not global),
+      applied to every `/admin/*` route except `GET /admin/me`
+      - Tested directly (`auth.test.ts`, 6 tests) with minimal fake
+        request/reply objects, same level of coverage `requireSupabaseAuth`
+        itself has (none) plus real Postgres-backed `isUserAdmin` tests
+- [x] Emails resolved via the existing `SUPABASE_SERVICE_ROLE_KEY` /
+      `getSupabaseAdmin()` client (`auth.admin.listUsers`) — no new
+      credential, explicitly approved expansion of what that key's already-
+      existing access is used for in this codebase
+- [x] `trusted_invites` table (migration `0011`), 7-day expiry,
+      `lib/invites.ts` (22 tests: token generation, status computation,
+      creation, full accept lifecycle, revoke)
+- [x] Hard structural rule — this mechanism can never write over an
+      existing Pro plan — enforced at **two** separate points, not one:
+      creation (`createTrustedInvite` throws `AlreadyProError`, surfaced as
+      a clean 400) and acceptance (`acceptInvite` re-checks the plan
+      immediately before writing, catching the race where an invited
+      account upgrades to Pro before clicking the link)
+      - Both verified with real proof against the real account (see below)
+- [x] Accept flow split into read-only `GET /invites/:token` (status
+      preview) and mutating `POST /invites/:token/accept` (only fires on
+      an explicit click) — a GET that auto-accepted would let email
+      link-scanners burn the invite before the recipient opens it
+- [x] Revoke included in v1: `revoked_at`, `POST /admin/invites/:id/revoke`
+- [x] `/admin` page + gated nav link in `TopBar`, `/invite/[token]` accept
+      page (outside the `(app)` chrome) — client-side gating is a
+      courtesy; `requireAdmin` server-side is the real enforcement
+- [x] Real full-lifecycle proof against the account's own real Supabase
+      account (`kabornblack@gmail.com`, not `personal_details.email` — a
+      first attempt using the wrong email field produced a false pass on
+      the hard-rule test, caught and corrected before accepting the proof
+      as valid): create → accept → plan `free` → `trusted` confirmed in
+      DB; double-accept rejected; email-mismatch rejected; **create-time
+      Pro block confirmed** (`AlreadyProError` thrown, zero rows created);
+      **accept-time race confirmed** (invite created while `free`, account
+      upgraded to `pro` before accepting, acceptance refused, plan stayed
+      `pro`, invite stayed un-accepted); revoke confirmed. Original plan
+      (`trusted`) restored, all test invite rows deleted after.
+- [x] Real account set `is_admin=true` via `scripts/set-admin.ts`,
+      confirmed via direct DB read
+- [x] Tests: `invites.test.ts` (22), `auth.test.ts` (6, new file),
+      `quota.test.ts` +3 (`getQuotaSummary`) — full suite 24 files / 144
+      tests passed (`services/api`), 2 files / 12 tests passed
+      (`apps/web`); typecheck and lint clean on both packages
+
+### Phase 8 gotchas
+
+- `GET /admin/users` calls `listUsers` plus one `getQuotaSummary` per user
+  on every request — fine at current scale (~8 users), would need caching
+  or a bulk quota-read path if the user base grows substantially.
+- Known, unfixed UX gap: a not-yet-logged-in person clicking an invite
+  link gets redirected to `/login` by `middleware.ts` (which clears the
+  destination), and the login page has no `returnTo` mechanism — they land
+  on `/dashboard`, not back on the invite, and have to click the link a
+  second time. The invite itself is unaffected (still valid, not
+  consumed). Not fixed here — would mean touching shared login/middleware
+  code beyond this feature's scope.
 
 ## How to start everything
 

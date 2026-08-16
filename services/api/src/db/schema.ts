@@ -244,6 +244,10 @@ export const userSettings = pgTable("user_settings", {
   trialStartedAt: timestamp("trial_started_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+  // ADR-0006: admin flag, only ever settable via scripts/set-admin.ts (same
+  // one-off-script pattern as set-user-plan.ts) - never through any route or
+  // UI. Gates the new /admin/* routes via requireAdmin (lib/auth.ts).
+  isAdmin: boolean("is_admin").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -251,6 +255,36 @@ export const userSettings = pgTable("user_settings", {
     .notNull()
     .defaultNow(),
 });
+
+/**
+ * ADR-0006: admin-issued trusted-plan invites, one row per invite. No FK to
+ * auth.users for created_by (same no-cross-DB-FK convention as everywhere
+ * else) - it's the admin's user_id, kept for audit only. email is the
+ * invited person's email; on accept, the authenticated caller's own email
+ * must match it (checked in lib/invites.ts, not here). revoked_at and
+ * accepted_at are mutually-exclusive-in-practice nullable timestamps rather
+ * than a status enum - matches the timestamp-as-state convention already
+ * used by generated_documents/applications elsewhere in this schema.
+ */
+export const trustedInvites = pgTable(
+  "trusted_invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    token: text("token").notNull(),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => ({
+    tokenUnique: unique("trusted_invites_token_unique").on(table.token),
+    emailIdx: index("trusted_invites_email_idx").on(sql`lower(${table.email})`),
+  }),
+);
 
 /**
  * Editable-without-a-deploy quota numbers for the free/trusted plans
