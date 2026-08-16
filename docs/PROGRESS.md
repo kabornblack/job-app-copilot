@@ -396,6 +396,18 @@ optional PDF CV upload. See ADR-0005, which supersedes ADR-0004's original
   were still present in the Auth dashboard. Do not run this script; if
   quota behavior needs re-verification, ask the user for manual
   curl/browser steps against their own real account instead.
+- **Post-Stage-3 fix**: `generateClaudeText`'s `max_tokens` was still `450`
+  — sized for the old resumeSummary-only prompt, never revisited when the
+  Stage 3 / ADR-0005 redesign made both input and expected output
+  meaningfully larger. Confirmed with a real generation call returning
+  `stop_reason: "max_tokens"` (not inferred from the visibly cut-off text
+  alone); fixed to `4096`, re-verified with a real call returning
+  `stop_reason: "end_turn"` and full untruncated content, then the two
+  real `generated_documents` rows that had been silently truncated
+  (cut off mid-word) were regenerated and persisted with corrected
+  content. No code change needed beyond the constant — `buildPrompt`,
+  `profile-serialization.ts`, and the CV-priority logic were all already
+  correct; only the output ceiling was wrong.
 
 ## How to start everything
 
