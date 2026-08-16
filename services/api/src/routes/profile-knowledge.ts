@@ -25,6 +25,7 @@ import {
   updateWorkExperience,
   upsertPersonalDetails,
 } from "../lib/profile-knowledge";
+import { deleteCvUpload, getCvUpload, saveCvUpload } from "../lib/cv-upload";
 
 const idParamSchema = z.object({ id: z.string().uuid() });
 
@@ -432,6 +433,51 @@ export default async function profileKnowledgeRoutes(
     const row = await deleteSkill(userId, id);
     if (!row) {
       return reply.status(404).send({ error: "Skill not found" });
+    }
+    return row;
+  });
+
+  // --- cv_uploads (1:1, optional — Phase 7 Stage 3 / ADR-0005) ---
+
+  fastify.get("/profile/cv", async (request, reply) => {
+    const userId = request.user?.id;
+    if (!userId) {
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+    const row = await getCvUpload(userId);
+    return row ?? null;
+  });
+
+  fastify.put("/profile/cv", async (request, reply) => {
+    const userId = request.user?.id;
+    if (!userId) {
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+    const file = await request.file();
+    if (!file) {
+      return reply.status(400).send({ error: "No file uploaded" });
+    }
+    if (file.mimetype !== "application/pdf") {
+      return reply
+        .status(400)
+        .send({ error: "Only PDF files are supported" });
+    }
+    const buffer = await file.toBuffer();
+    const row = await saveCvUpload(userId, {
+      buffer,
+      originalFilename: file.filename ?? null,
+    });
+    return row;
+  });
+
+  fastify.delete("/profile/cv", async (request, reply) => {
+    const userId = request.user?.id;
+    if (!userId) {
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+    const row = await deleteCvUpload(userId);
+    if (!row) {
+      return reply.status(404).send({ error: "CV not found" });
     }
     return row;
   });

@@ -1,4 +1,5 @@
 import { captureProviderError } from "./sentry";
+import { serializeProfileKnowledge, type ProfileKnowledgeBundle } from "./profile-serialization";
 
 export interface ClaudeJobContext {
   title: string;
@@ -18,55 +19,100 @@ export interface ClaudeProfileContext {
   resumeSummary?: string;
 }
 
+function jobSection(job: ClaudeJobContext): string {
+  return `Job:
+- Title: ${job.title}
+- Company: ${job.company}
+- Location: ${job.location ?? "N/A"}
+- Remote: ${job.remoteType ?? "N/A"}
+- URL: ${job.url}
+- Posted: ${job.postedAt ?? "N/A"}
+- Description: ${job.description ?? "No description provided."}`;
+}
+
+function searchPrefsSection(profile: ClaudeProfileContext): string {
+  return `Target roles: ${profile.targetRoles.join(", ")}
+Locations: ${profile.locations.join(", ")}
+Remote preference: ${profile.remotePref}`;
+}
+
+/**
+ * Phase 7 Stage 3 / ADR-0005: builds the generation prompt. Two paths,
+ * chosen automatically by whether the user has an uploaded CV - never a
+ * per-job toggle:
+ *
+ * - CV present: the uploaded CV's extracted text is the AUTHORITATIVE fact
+ *   source; the structured profile-knowledge serialization is secondary,
+ *   used only to fill genuine gaps the CV doesn't cover. Explicit priority
+ *   instruction below - never let profile data override/contradict the CV.
+ * - CV absent (original ADR-0004 Stage 3 scope): the structured
+ *   serialization IS the fact source. resumeSummary is demoted to a
+ *   framing/tone input only (see profile-serialization.ts), not a fact.
+ */
+export function buildPrompt(
+  job: ClaudeJobContext,
+  profile: ClaudeProfileContext,
+  type: "cv" | "cover_letter",
+  knowledge: ProfileKnowledgeBundle,
+  cvText: string | null,
+): string {
+  const docLabel = type === "cv" ? "CV/resume" : "cover letter";
+  const structured = serializeProfileKnowledge(knowledge, profile.resumeSummary ?? null);
+
+  if (cvText) {
+    return `Generate a concise ${docLabel} draft for the following job.
+
+You have two sources of information about the candidate:
+
+1. UPLOADED CV (authoritative) - the candidate's actual, existing CV. Every
+   factual detail here (dates, job titles, employers, specific
+   accomplishments) is ground truth. Never contradict, alter, or override
+   anything stated in this CV text.
+
+2. PROFILE DATA (gap-filling only) - structured details the candidate has
+   entered separately. Use this ONLY to fill in genuine gaps the uploaded
+   CV does not cover (e.g. a certification or skill mentioned in profile
+   data but absent from the CV). If profile data conflicts with the
+   uploaded CV in any way, the uploaded CV always wins - ignore the
+   conflicting profile data entirely.
+
+=== UPLOADED CV (authoritative) ===
+${cvText}
+
+=== PROFILE DATA (gap-filling only) ===
+${structured}
+
+${searchPrefsSection(profile)}
+
+${jobSection(job)}
+
+Please return a concise plain-text ${docLabel} only, using resume-style sections such as Summary, Skills, and Experience. Tailor emphasis and phrasing to the job above using only real information from the two sources - never fabricate experience, skills, or accomplishments beyond what's stated there.`;
+  }
+
+  return `Generate a concise ${docLabel} draft for the following job, using the candidate's real background below. Every fact (dates, employers, titles, achievements) must come from the candidate background section - do not invent or infer any factual detail not stated there.
+
+Candidate background:
+${structured}
+
+${searchPrefsSection(profile)}
+
+${jobSection(job)}
+
+Please return a concise plain-text ${docLabel} only, using resume-style sections such as Summary, Skills, and Experience. Tailor emphasis and phrasing to the job above, but do not fabricate experience, skills, or accomplishments beyond what's listed in the candidate background.`;
+}
+
 export async function generateClaudeText(
   job: ClaudeJobContext,
   profile: ClaudeProfileContext,
   type: "cv" | "cover_letter",
+  knowledge: ProfileKnowledgeBundle,
+  cvText: string | null,
 ) {
   const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
   if (!CLAUDE_API_KEY) {
     throw new Error("CLAUDE_API_KEY is required for Claude generation");
   }
-  const prompt =
-    type === "cv"
-      ? `Generate a concise CV/resume draft for the following job and profile.
-
-Profile:
-- Skills: ${profile.skills.join(", ")}
-- Target roles: ${profile.targetRoles.join(", ")}
-- Locations: ${profile.locations.join(", ")}
-- Remote preference: ${profile.remotePref}
-- Summary: ${profile.resumeSummary ?? "No summary provided."}
-
-Job:
-- Title: ${job.title}
-- Company: ${job.company}
-- Location: ${job.location ?? "N/A"}
-- Remote: ${job.remoteType ?? "N/A"}
-- URL: ${job.url}
-- Posted: ${job.postedAt ?? "N/A"}
-- Description: ${job.description ?? "No description provided."}
-
-Please return a concise plain-text CV/resume only, using resume-style sections such as Summary, Skills, and Experience.`
-      : `Generate a short ${type} draft for the following job and profile.
-
-Job:
-- Title: ${job.title}
-- Company: ${job.company}
-- Location: ${job.location ?? "N/A"}
-- Remote: ${job.remoteType ?? "N/A"}
-- URL: ${job.url}
-- Posted: ${job.postedAt ?? "N/A"}
-- Description: ${job.description ?? "No description provided."}
-
-Profile:
-- Skills: ${profile.skills.join(", ")}
-- Target roles: ${profile.targetRoles.join(", ")}
-- Locations: ${profile.locations.join(", ")}
-- Remote preference: ${profile.remotePref}
-- Summary: ${profile.resumeSummary ?? "No summary provided."}
-
-Please return a concise plain-text ${type} draft only.`;
+  const prompt = buildPrompt(job, profile, type, knowledge, cvText);
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",

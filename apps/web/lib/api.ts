@@ -5,7 +5,10 @@ const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 type ApiFetchInit = {
   method?: string;
   headers?: Record<string, string>;
-  body?: string | null;
+  // FormData added for CV upload (PUT /profile/cv, multipart) — see the
+  // Content-Type handling below: FormData must NOT get a manual
+  // Content-Type, the browser sets its own multipart boundary.
+  body?: string | FormData | null;
 };
 
 /** Authenticated fetch to the Fastify API (Bearer Supabase access token). */
@@ -22,7 +25,11 @@ export async function apiFetch(
   if (session?.access_token) {
     headers.set("Authorization", `Bearer ${session.access_token}`);
   }
-  if (init.body && !headers.has("Content-Type")) {
+  if (
+    init.body &&
+    typeof init.body === "string" &&
+    !headers.has("Content-Type")
+  ) {
     headers.set("Content-Type", "application/json");
   }
 
