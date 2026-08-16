@@ -15,6 +15,7 @@ import {
   consumeDocGenQuota,
   consumeScoreCallQuota,
   consumeSearchQuota,
+  getQuotaSummary,
   setUserPlan,
 } from "./quota";
 
@@ -26,7 +27,15 @@ const proUserId = "00000000-0000-4000-8000-0000000000f2";
 const trustedUserId = "00000000-0000-4000-8000-0000000000f3";
 const paygUserId = "00000000-0000-4000-8000-0000000000f4";
 const cronUserId = "00000000-0000-4000-8000-0000000000f6";
-const allTestUserIds = [freeUserId, proUserId, trustedUserId, paygUserId, cronUserId];
+const summaryUserId = "00000000-0000-4000-8000-0000000000f8";
+const allTestUserIds = [
+  freeUserId,
+  proUserId,
+  trustedUserId,
+  paygUserId,
+  cronUserId,
+  summaryUserId,
+];
 
 async function overrideLimit(
   plan: string,
@@ -226,5 +235,48 @@ describe("payg plan (reserved, no metering implemented)", () => {
     await setUserPlan(paygUserId, "payg");
     const result = await consumeScoreCallQuota(paygUserId);
     expect(result.allowed).toBe(false);
+  });
+});
+
+describe("getQuotaSummary (ADR-0006 admin user list)", () => {
+  it("reflects real consumption for a free-plan user without mutating any counter itself", async () => {
+    await setUserPlan(summaryUserId, "free");
+
+    const before = await getQuotaSummary(summaryUserId);
+    expect(before.plan).toBe("free");
+    expect(before.search.used).toBe(0);
+    expect(before.search.limit).toBe(DEFAULT_QUOTA_LIMITS.free.searchWeekly);
+
+    await consumeSearchQuota(summaryUserId);
+    await consumeDocGenQuota(summaryUserId, "cv");
+
+    const after = await getQuotaSummary(summaryUserId);
+    expect(after.search.used).toBe(1);
+    expect(after.cvGen.used).toBe(1);
+    expect(after.cvGen.limit).toBe(DEFAULT_QUOTA_LIMITS.free.cvGenDaily);
+    // A second read must not itself have incremented anything (read-only).
+    const readAgain = await getQuotaSummary(summaryUserId);
+    expect(readAgain.search.used).toBe(1);
+  });
+
+  it("uses fixed QUOTA_LIMITS.pro constants for a pro-plan user", async () => {
+    await setUserPlan(summaryUserId, "pro");
+    const summary = await getQuotaSummary(summaryUserId);
+    expect(summary.plan).toBe("pro");
+    expect(summary.search.limit).toBe(QUOTA_LIMITS.pro.searchDaily);
+    expect(summary.cvGen.limit).toBe(QUOTA_LIMITS.pro.cvGenMonthly);
+    expect(summary.scoreCalls.limit).toBe(QUOTA_LIMITS.pro.scoreCallsMonthly);
+  });
+
+  it("reports limit 0 / used 0 for payg (no metering implemented) rather than a computed cap", async () => {
+    await setUserPlan(summaryUserId, "payg");
+    const summary = await getQuotaSummary(summaryUserId);
+    expect(summary.plan).toBe("payg");
+    expect(summary.search).toEqual({
+      metric: "payg_unmetered",
+      used: 0,
+      limit: 0,
+      resetsAt: null,
+    });
   });
 });

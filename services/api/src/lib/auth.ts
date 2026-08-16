@@ -1,5 +1,8 @@
 import { createClient, type User } from "@supabase/supabase-js";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { eq } from "drizzle-orm";
+import { db } from "../db/client";
+import { userSettings } from "../db/schema";
 
 export type AuthUser = {
   id: string;
@@ -37,7 +40,10 @@ export function normalizeSupabaseUrl(url: string): string {
   return url.trim().replace(/\/+$/, "").replace(/\/rest\/v1$/i, "");
 }
 
-function getSupabaseAdmin() {
+/** Exported for lib/invites.ts (resolving invited emails to Supabase user
+ * ids via auth.admin.listUsers) - same service-role client used for JWT
+ * verification below, no new credential. See ADR-0006. */
+export function getSupabaseAdmin() {
   const rawUrl = process.env.SUPABASE_URL?.trim();
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!rawUrl || !serviceRoleKey) {
@@ -115,5 +121,59 @@ export async function requireSupabaseAuth(
   } catch (error) {
     request.log.error({ err: error }, "auth verification failed");
     await reply.status(401).send({ error: "Unauthorized" });
+  }
+}
+
+/**
+ * ADR-0006: plain, directly-testable lookup - kept separate from the
+ * requireAdmin hook below so the actual admin check has real Postgres test
+ * coverage without needing a Fastify request/reply harness (this codebase
+ * has none; requireSupabaseAuth itself has no test file either).
+ */
+export async function isUserAdmin(userId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ isAdmin: userSettings.isAdmin })
+    .from(userSettings)
+    .where(eq(userSettings.userId, userId))
+    .limit(1);
+  return row?.isAdmin ?? false;
+}
+
+/**
+ * Only ever called from scripts/set-admin.ts (same one-off-script pattern
+ * as quota.ts's setUserPlan / scripts/set-user-plan.ts) - never through any
+ * route or UI. Assumes the row already exists (ensureUserSettings has
+ * always run by the time a real account is worth promoting to admin);
+ * callers needing that guarantee should call ensureUserSettings first.
+ */
+export async function setUserAdmin(userId: string, isAdmin: boolean): Promise<void> {
+  await db
+    .update(userSettings)
+    .set({ isAdmin, updatedAt: new Date() })
+    .where(eq(userSettings.userId, userId));
+}
+
+/**
+ * Per-route onRequest hook (not global) for the /admin/* routes that list
+ * users or manage invites - registered as route option
+ * { onRequest: requireAdmin }, running after the global requireSupabaseAuth
+ * hook has already set request.user. GET /admin/me deliberately does NOT
+ * use this hook - it's how a non-admin finds out they're not one.
+ */
+export async function requireAdmin(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  if (reply.sent) {
+    return;
+  }
+  const userId = request.user?.id;
+  if (!userId) {
+    await reply.status(401).send({ error: "Unauthorized" });
+    return;
+  }
+  const admin = await isUserAdmin(userId);
+  if (!admin) {
+    await reply.status(403).send({ error: "Admin access required" });
   }
 }

@@ -75,4 +75,33 @@ describe("buildPrompt", () => {
     expect(absent).not.toContain("CV/resume");
     expect(present).not.toContain("CV/resume");
   });
+
+  it("cover_letter gets its own narrative-letter format instruction, not the CV path's resume-style-sections instruction", () => {
+    for (const cvText of [null, "some real CV text"]) {
+      const prompt = buildPrompt(job, profile, "cover_letter", emptyKnowledge, cvText);
+      // The bug this test guards against: both types used to share one
+      // closing line telling the model to use "resume-style sections such
+      // as Summary, Skills, and Experience" - which made cover letters
+      // come out resume-shaped. That instruction must never appear for
+      // cover_letter.
+      expect(prompt).not.toContain("resume-style sections");
+      expect(prompt).not.toContain("Summary, Skills, and Experience");
+      // The new distinct instruction must be present instead.
+      expect(prompt).toContain("Write this as an actual cover letter, not a resume");
+      expect(prompt).toContain("NO section headers of any kind");
+      expect(prompt).toContain('do not write "Cover Letter" as a heading');
+      expect(prompt).toContain("250-350 words");
+      expect(prompt).toContain("do not use bullet points");
+    }
+  });
+
+  it("the cv type still gets the original resume-style-sections instruction, unaffected by the cover-letter fix", () => {
+    for (const cvText of [null, "some real CV text"]) {
+      const prompt = buildPrompt(job, profile, "cv", emptyKnowledge, cvText);
+      expect(prompt).toContain(
+        "using resume-style sections such as Summary, Skills, and Experience",
+      );
+      expect(prompt).not.toContain("Write this as an actual cover letter");
+    }
+  });
 });

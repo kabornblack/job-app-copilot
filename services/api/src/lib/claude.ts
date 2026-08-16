@@ -37,6 +37,27 @@ Remote preference: ${profile.remotePref}`;
 }
 
 /**
+ * Format instruction, distinct per document type. Previously both types
+ * shared one closing line ("...using resume-style sections such as
+ * Summary, Skills, and Experience"), which meant cover letters came out
+ * resume-shaped: section headers, a redundant "Cover Letter" heading, and
+ * a near-full restatement of work history instead of a narrative letter.
+ * Only the FORMAT/shape instruction differs here - the two-source
+ * priority rule (CV authoritative, profile gap-fills) is identical for
+ * both types and lives in the caller, not in this function.
+ */
+function formatInstruction(type: "cv" | "cover_letter"): string {
+  if (type === "cv") {
+    return "Please return a concise plain-text CV/resume only, using resume-style sections such as Summary, Skills, and Experience.";
+  }
+  return `Write this as an actual cover letter, not a resume - follow this shape exactly:
+- Plain letter paragraphs only. NO section headers of any kind (no "Summary", "Experience", "Skills"), and no document-type heading anywhere in the body (do not write "Cover Letter" as a heading).
+- A standard salutation (e.g. "Dear Hiring Team,") and sign-off (e.g. "Sincerely, [name]").
+- 3-4 short paragraphs total: (1) an opening naming the role and why this company specifically, drawing on something real from the job description below - not a generic statement; (2) one to two paragraphs making the case using ONE OR TWO of the candidate's most relevant real achievements from the sources above - not a recitation of the full work history; (3) a closing paragraph with genuine enthusiasm and a clear call to action.
+- Target length: roughly 250-350 words total. This is a letter, not a resume - do not list skills, do not restate every job, do not use bullet points.`;
+}
+
+/**
  * Phase 7 Stage 3 / ADR-0005: builds the generation prompt. Two paths,
  * chosen automatically by whether the user has an uploaded CV - never a
  * per-job toggle:
@@ -86,7 +107,7 @@ ${searchPrefsSection(profile)}
 
 ${jobSection(job)}
 
-Please return a concise plain-text ${docLabel} only, using resume-style sections such as Summary, Skills, and Experience. Tailor emphasis and phrasing to the job above using only real information from the two sources - never fabricate experience, skills, or accomplishments beyond what's stated there.`;
+${formatInstruction(type)} Tailor emphasis and phrasing to the job above using only real information from the two sources - never fabricate experience, skills, or accomplishments beyond what's stated there.`;
   }
 
   return `Generate a concise ${docLabel} draft for the following job, using the candidate's real background below. Every fact (dates, employers, titles, achievements) must come from the candidate background section - do not invent or infer any factual detail not stated there.
@@ -98,7 +119,7 @@ ${searchPrefsSection(profile)}
 
 ${jobSection(job)}
 
-Please return a concise plain-text ${docLabel} only, using resume-style sections such as Summary, Skills, and Experience. Tailor emphasis and phrasing to the job above, but do not fabricate experience, skills, or accomplishments beyond what's listed in the candidate background.`;
+${formatInstruction(type)} Tailor emphasis and phrasing to the job above, but do not fabricate experience, skills, or accomplishments beyond what's listed in the candidate background.`;
 }
 
 export async function generateClaudeText(

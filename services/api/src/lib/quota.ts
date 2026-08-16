@@ -469,3 +469,137 @@ export function isQuotaExceededError(
 ): error is QuotaExceededError {
   return error instanceof QuotaExceededError;
 }
+
+export type QuotaSummaryEntry = {
+  metric: string;
+  used: number;
+  limit: number;
+  resetsAt: string | null;
+};
+
+export type QuotaSummary = {
+  plan: UserPlan;
+  search: QuotaSummaryEntry;
+  cvGen: QuotaSummaryEntry;
+  coverLetterGen: QuotaSummaryEntry;
+  scoreCalls: QuotaSummaryEntry;
+};
+
+/**
+ * ADR-0006: read-only usage-vs-limit snapshot for the admin user list.
+ * Mirrors the exact branching in consumeSearchQuota/consumeDocGenQuota/
+ * consumeScoreCallQuota (same period functions, same getQuotaLimit
+ * fallback), but never mutates a counter - only reads. payg has no
+ * metering implemented (see consumeSearchQuota etc.), so its entries are
+ * reported as limit 0 / used 0 rather than computed from a real cap.
+ */
+export async function getQuotaSummary(userId: string): Promise<QuotaSummary> {
+  const settings = await ensureUserSettings(userId);
+  const plan = normalizePlan(settings.plan);
+
+  if (plan === "payg") {
+    const blocked: QuotaSummaryEntry = {
+      metric: "payg_unmetered",
+      used: 0,
+      limit: 0,
+      resetsAt: null,
+    };
+    return {
+      plan,
+      search: blocked,
+      cvGen: blocked,
+      coverLetterGen: blocked,
+      scoreCalls: blocked,
+    };
+  }
+
+  let search: QuotaSummaryEntry;
+  if (plan === "free") {
+    const limit = await getQuotaLimit(
+      "free",
+      METRIC_SEARCH_WEEKLY,
+      DEFAULT_QUOTA_LIMITS.free.searchWeekly,
+    );
+    const period = utcWeekStart();
+    const used = await readCounter(userId, METRIC_SEARCH_WEEKLY, period);
+    search = {
+      metric: METRIC_SEARCH_WEEKLY,
+      used,
+      limit,
+      resetsAt: endOfUtcWeekIso(period),
+    };
+  } else {
+    const limit =
+      plan === "pro"
+        ? QUOTA_LIMITS.pro.searchDaily
+        : await getQuotaLimit(
+            "trusted",
+            METRIC_SEARCH_DAILY,
+            DEFAULT_QUOTA_LIMITS.trusted.searchDaily,
+          );
+    const period = utcToday();
+    const used = await readCounter(userId, METRIC_SEARCH_DAILY, period);
+    search = {
+      metric: METRIC_SEARCH_DAILY,
+      used,
+      limit,
+      resetsAt: endOfUtcDayIso(period),
+    };
+  }
+
+  async function docGenEntry(docType: "cv" | "cover_letter"): Promise<QuotaSummaryEntry> {
+    if (plan === "free") {
+      const metric =
+        docType === "cv" ? METRIC_CV_GEN_DAILY : METRIC_COVER_LETTER_GEN_DAILY;
+      const fallback =
+        docType === "cv"
+          ? DEFAULT_QUOTA_LIMITS.free.cvGenDaily
+          : DEFAULT_QUOTA_LIMITS.free.coverLetterGenDaily;
+      const limit = await getQuotaLimit("free", metric, fallback);
+      const period = utcToday();
+      const used = await readCounter(userId, metric, period);
+      return { metric, used, limit, resetsAt: endOfUtcDayIso(period) };
+    }
+    const metric =
+      docType === "cv" ? METRIC_CV_GEN_MONTHLY : METRIC_COVER_LETTER_GEN_MONTHLY;
+    const limit =
+      plan === "pro"
+        ? docType === "cv"
+          ? QUOTA_LIMITS.pro.cvGenMonthly
+          : QUOTA_LIMITS.pro.coverLetterGenMonthly
+        : await getQuotaLimit(
+            "trusted",
+            metric,
+            docType === "cv"
+              ? DEFAULT_QUOTA_LIMITS.trusted.cvGenMonthly
+              : DEFAULT_QUOTA_LIMITS.trusted.coverLetterGenMonthly,
+          );
+    const period = utcMonthStart();
+    const used = await readCounter(userId, metric, period);
+    return { metric, used, limit, resetsAt: startOfNextUtcMonthIso(period) };
+  }
+
+  const [cvGen, coverLetterGen] = await Promise.all([
+    docGenEntry("cv"),
+    docGenEntry("cover_letter"),
+  ]);
+
+  const scoreLimit =
+    plan === "pro"
+      ? QUOTA_LIMITS.pro.scoreCallsMonthly
+      : await getQuotaLimit(
+          plan,
+          METRIC_SCORE_CALLS_MONTHLY,
+          DEFAULT_QUOTA_LIMITS[plan].scoreCallsMonthly,
+        );
+  const scorePeriod = utcMonthStart();
+  const scoreUsed = await readCounter(userId, METRIC_SCORE_CALLS_MONTHLY, scorePeriod);
+  const scoreCalls: QuotaSummaryEntry = {
+    metric: METRIC_SCORE_CALLS_MONTHLY,
+    used: scoreUsed,
+    limit: scoreLimit,
+    resetsAt: startOfNextUtcMonthIso(scorePeriod),
+  };
+
+  return { plan, search, cvGen, coverLetterGen, scoreCalls };
+}
