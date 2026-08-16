@@ -288,7 +288,8 @@ Structured career data (work history, education, certifications,
 achievements, contact info) so generation uses real facts instead of
 inventing them. See ADR-0004. Split into stages: Stage 1 (schema + API,
 backend-only) → Stage 2 (tabbed profile UI, frontend-only) → Stage 3
-(generation prompt serialization).
+(generation prompt redesign + optional CV upload — see ADR-0005, which
+supersedes ADR-0004's original Stage 3 framing).
 
 ### Stage 1 — schema + CRUD API — COMPLETE
 
@@ -333,11 +334,53 @@ backend-only) → Stage 2 (tabbed profile UI, frontend-only) → Stage 3
       Preferences), independent save per section, repeatable "add another"
       cards for the 1:many sections
 
-### Stage 3 — generation prompt serialization — NOT STARTED
+### Stage 3 — generation prompt redesign + CV upload — COMPLETE
 
-- [ ] Generation prompt serialization: structured context replaces
-      resume_summary as primary source; verify with real generated CV
-      showing real name/company/dates, not invented content
+Combined with a new capability (not in the original ADR-0004 Stage 3 scope):
+optional PDF CV upload. See ADR-0005, which supersedes ADR-0004's original
+"Stage 3 deferred" framing.
+
+- [x] `cv_uploads` table (1:1, `user_id` PK, no FK to `auth.users` — same
+      convention as every other profile-knowledge table)
+      - Migration `0010_cv_uploads`; hand-appended `_journal.json` entry
+        (idx 10), matching the existing hand-maintained pattern
+      - Verified: `Migrations applied successfully`; table + columns
+        confirmed via `\d cv_uploads` against real local Postgres
+- [x] New dependencies (both explicitly approved before installing):
+      `pdf-parse` (PDF text extraction) and `@fastify/multipart` (this API
+      had zero multipart/form-data handling before this change)
+      - Real-PDF proof (not mocked): a PDF generated with `pdfkit`,
+        extracted via the real `extractPdfText`/`saveCvUpload` pipeline —
+        text matched exactly, file appeared/disappeared on disk correctly
+        across save/get/delete, corrupt-PDF input produced
+        `extractionStatus: "failed"` rather than throwing out of
+        `saveCvUpload`
+      - Found and fixed during verification: `pdf-parse` v2's `getText()`
+        defaults to inserting a `-- N of M --` per-page footer into the
+        extracted text (confirmed by reading `ParseParameters.ts`'s
+        `setDefaultParseParameters`, not assumed) — explicitly suppressed
+        via `pageJoiner: "\n\n"` so it never reaches the generation prompt
+- [x] `PUT` / `GET` / `DELETE /profile/cv` routes, upload UI at the top of
+      the Personal Info tab (replace/delete, extraction-status messaging)
+- [x] `services/api/src/lib/profile-serialization.ts`: formats the six
+      ADR-0004 resources into structured text, used in both generation
+      paths; `resume_summary` demoted to a labeled "framing/tone only, not
+      a fact source" section in both, per ADR-0004's original intent
+- [x] `generateClaudeText`/`buildPrompt` (`services/api/src/lib/claude.ts`):
+      CV-present path states an explicit priority rule (uploaded CV
+      authoritative, profile data gap-fill only, CV always wins on
+      conflict); CV-absent path uses the structured serialization as the
+      sole fact source (original ADR-0004 Stage 3 design). No per-job
+      toggle — CV presence alone decides the path
+      - Verified with real generated prompt output for both paths against
+        the account's own real profile-knowledge data (work experience,
+        education, skills) and a real job row — reviewed directly, not
+        assumed correct from code reading alone
+- [x] Tests: `cv-upload.test.ts` (7, real Postgres + real PDFs via
+      `pdfkit`), `profile-serialization.test.ts` (7), `claude.test.ts` (4,
+      `buildPrompt` unit tests for both paths) — full suite 22 files / 111
+      tests passed (`services/api`), 2 files / 12 tests passed (`apps/web`);
+      typecheck and lint clean on both packages
 
 ### Phase 7 gotchas
 

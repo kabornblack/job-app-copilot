@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
+  deleteCvUpload,
+  getCvUpload,
   getPersonalDetails,
+  putCvUpload,
   putPersonalDetails,
+  type CvUpload,
   type PersonalDetailsInput,
 } from "@/lib/profile-knowledge-api";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -29,12 +33,27 @@ const emptyForm: PersonalDetailsInput = {
   professionalSummary: "",
 };
 
+const EXTRACTION_STATUS_LABEL: Record<string, string> = {
+  ok: "Text extracted",
+  empty: "No readable text found — try re-exporting as a text-based PDF",
+  failed: "Could not read this file — try re-uploading",
+};
+
 export default function PersonalInfoTab() {
   const [form, setForm] = useState<PersonalDetailsInput>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [statusTone, setStatusTone] = useState<"error" | "success">("success");
+
+  const [cvUpload, setCvUpload] = useState<CvUpload | null>(null);
+  const [cvLoading, setCvLoading] = useState(true);
+  const [cvUploading, setCvUploading] = useState(false);
+  const [cvStatus, setCvStatus] = useState<string | null>(null);
+  const [cvStatusTone, setCvStatusTone] = useState<"error" | "success">(
+    "success",
+  );
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,6 +87,69 @@ export default function PersonalInfoTab() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCvUpload()
+      .then((upload) => {
+        if (!cancelled) {
+          setCvUpload(upload);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setCvStatusTone("error");
+          setCvStatus(err.message || "Failed to load CV");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCvLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleCvFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    setCvUploading(true);
+    setCvStatus(null);
+    try {
+      const uploaded = await putCvUpload(file);
+      setCvUpload(uploaded);
+      setCvStatusTone("success");
+      setCvStatus("CV uploaded.");
+    } catch (err) {
+      setCvStatusTone("error");
+      setCvStatus(err instanceof Error ? err.message : "Failed to upload CV");
+    } finally {
+      setCvUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleCvDelete = async () => {
+    setCvUploading(true);
+    setCvStatus(null);
+    try {
+      await deleteCvUpload();
+      setCvUpload(null);
+      setCvStatusTone("success");
+      setCvStatus("CV removed.");
+    } catch (err) {
+      setCvStatusTone("error");
+      setCvStatus(err instanceof Error ? err.message : "Failed to remove CV");
+    } finally {
+      setCvUploading(false);
+    }
+  };
 
   const updateField = (field: keyof PersonalDetailsInput, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -105,12 +187,80 @@ export default function PersonalInfoTab() {
       <CardHeader>
         <CardTitle>Personal Info</CardTitle>
         <CardDescription>
-          Contact details and a short professional summary used when
-          generating your CV and cover letter.
+          Contact details and a short professional summary used when generating
+          your CV and cover letter.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="grid gap-3">
+          <div className="grid gap-1.5 rounded-md border p-3">
+            <Label>
+              Uploaded CV{" "}
+              <span className="font-normal text-muted-foreground">
+                (If present, it's used as the authoritative source for CV/cover
+                letter generation; profile data below only fills gaps it doesn't
+                cover)
+              </span>
+            </Label>
+            {cvLoading ? (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            ) : cvUpload ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="text-sm">
+                  <p>{cvUpload.originalFilename ?? "cv.pdf"}</p>
+                  <p className="text-muted-foreground">
+                    Uploaded{" "}
+                    {new Date(cvUpload.uploadedAt).toLocaleDateString()} —{" "}
+                    {EXTRACTION_STATUS_LABEL[cvUpload.extractionStatus] ??
+                      cvUpload.extractionStatus}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={cvUploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  Replace
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={cvUploading}
+                  onClick={handleCvDelete}
+                >
+                  Delete
+                </Button>
+              </div>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={cvUploading}
+                onClick={() => fileInputRef.current?.click()}
+                className="w-fit"
+              >
+                {cvUploading ? "Uploading…" : "Upload CV (PDF)"}
+              </Button>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={handleCvFileChange}
+            />
+            {cvStatus ? (
+              <Alert
+                variant={cvStatusTone === "error" ? "destructive" : "success"}
+              >
+                <AlertDescription>{cvStatus}</AlertDescription>
+              </Alert>
+            ) : null}
+          </div>
           <div className="grid gap-1.5">
             <Label htmlFor="fullName">Full name</Label>
             <Input
@@ -154,7 +304,9 @@ export default function PersonalInfoTab() {
                 id="linkedinUrl"
                 placeholder="linkedin.com/in/..."
                 value={form.linkedinUrl ?? ""}
-                onChange={(event) => updateField("linkedinUrl", event.target.value)}
+                onChange={(event) =>
+                  updateField("linkedinUrl", event.target.value)
+                }
               />
             </div>
             <div className="grid gap-1.5">
@@ -163,7 +315,9 @@ export default function PersonalInfoTab() {
                 id="portfolioUrl"
                 placeholder="yoursite.dev"
                 value={form.portfolioUrl ?? ""}
-                onChange={(event) => updateField("portfolioUrl", event.target.value)}
+                onChange={(event) =>
+                  updateField("portfolioUrl", event.target.value)
+                }
               />
             </div>
           </div>
@@ -179,7 +333,12 @@ export default function PersonalInfoTab() {
               }
             />
           </div>
-          <Button type="button" onClick={handleSave} disabled={saving} className="w-fit">
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="w-fit"
+          >
             {saving ? "Saving…" : "Save"}
           </Button>
           {status ? (

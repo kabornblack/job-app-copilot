@@ -316,6 +316,33 @@ export const personalDetails = pgTable("personal_details", {
     .defaultNow(),
 });
 
+/**
+ * Phase 7 Stage 3 / ADR-0005: optional uploaded CV, 1:1 per user (user_id is
+ * the primary key, no FK to Supabase auth.users, matching personal_details'
+ * exact pattern - this DB is local Docker Postgres, auth.users lives in
+ * Supabase-hosted Postgres, there is no cross-DB FK possible here).
+ * file_path is a relative stem, resolved via absoluteCvPath() at read/write
+ * time - same convention as generated_documents.file_path /
+ * documents.ts's absoluteDocumentPath(). extracted_text is what generation
+ * prompts actually read; extraction_status lets the UI distinguish "no CV
+ * uploaded" from "CV uploaded but text extraction found nothing" (e.g. a
+ * scanned/image-only PDF with no text layer) rather than silently treating
+ * both the same.
+ */
+export const cvUploads = pgTable("cv_uploads", {
+  userId: uuid("user_id").primaryKey(),
+  filePath: text("file_path").notNull(),
+  originalFilename: text("original_filename"),
+  extractedText: text("extracted_text").notNull(),
+  extractionStatus: text("extraction_status").notNull().default("ok"),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const workExperience = pgTable(
   "work_experience",
   {

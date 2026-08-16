@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import fastifyMultipart from "@fastify/multipart";
 import { createReadStream } from "fs";
 import { access } from "fs/promises";
 import { z } from "zod";
@@ -12,7 +13,16 @@ import {
   ensureUserSettings,
   isQuotaExceededError,
 } from "./lib/quota";
-import { isDuplicateSkillError } from "./lib/profile-knowledge";
+import {
+  getPersonalDetails,
+  isDuplicateSkillError,
+  listAchievements,
+  listCertifications,
+  listEducation,
+  listSkills,
+  listWorkExperience,
+} from "./lib/profile-knowledge";
+import { getCvUpload } from "./lib/cv-upload";
 import { initSentry, captureException, flushSentry } from "./lib/sentry";
 import { db } from "./db/client";
 import {
@@ -43,13 +53,20 @@ initSentry("api");
 
 const server = Fastify({ logger: true, trustProxy: false });
 
+// Phase 7 Stage 3 / ADR-0005: only consumer is PUT /profile/cv (CV upload).
+// 5MB cap - resumes are never remotely close to that size; this is the hard
+// backstop, saveCvUpload doesn't re-check size itself.
+await server.register(fastifyMultipart, {
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
 // Full audited list of HTTP methods actually used anywhere in this service
 // (grep for fastify./server.get|post|put|patch|delete across src/): GET,
 // POST, PUT, PATCH, DELETE, plus OPTIONS for the preflight itself. PUT is
-// only used by PUT /profile/personal-details; DELETE by the five 1:many
-// profile-knowledge resources' delete routes and PUT/DELETE on
-// personal-details. Keep this comment's method list in sync if a future
-// route introduces a method not already listed here.
+// used by PUT /profile/personal-details and PUT /profile/cv; DELETE by the
+// five 1:many profile-knowledge resources' delete routes plus PUT/DELETE on
+// personal-details and cv. Keep this comment's method list in sync if a
+// future route introduces a method not already listed here.
 server.addHook("onRequest", async (request, reply) => {
   reply.header("access-control-allow-origin", "*");
   reply.header(
@@ -341,6 +358,37 @@ const generateForApplication = async (
     return null;
   }
 
+  // Phase 7 Stage 3 / ADR-0005: gather the six profile-knowledge resources
+  // (structured serialization - primary source when no CV, gap-fill source
+  // when there is one) and the uploaded CV, if any. No per-job toggle - CV
+  // presence alone decides which prompt path generateClaudeText takes.
+  const [
+    personalDetailsRow,
+    workExperienceRows,
+    educationRows,
+    certificationRows,
+    achievementRows,
+    skillRows,
+    cvUpload,
+  ] = await Promise.all([
+    getPersonalDetails(userId),
+    listWorkExperience(userId),
+    listEducation(userId),
+    listCertifications(userId),
+    listAchievements(userId),
+    listSkills(userId),
+    getCvUpload(userId),
+  ]);
+
+  // Only treat the CV as "present" when extraction actually produced usable
+  // text - an "empty" (scanned/no text layer) or "failed" (corrupt file)
+  // upload has nothing authoritative to prioritize, so falls back to the
+  // profile-only path exactly as if no CV had been uploaded.
+  const cvText =
+    cvUpload && cvUpload.extractionStatus === "ok" && cvUpload.extractedText
+      ? cvUpload.extractedText
+      : null;
+
   const content = await generateClaudeText(
     {
       title: row.jobTitle,
@@ -359,6 +407,15 @@ const generateForApplication = async (
       resumeSummary: row.profileResumeSummary ?? undefined,
     },
     type,
+    {
+      personalDetails: personalDetailsRow,
+      workExperience: workExperienceRows,
+      education: educationRows,
+      certifications: certificationRows,
+      achievements: achievementRows,
+      skills: skillRows,
+    },
+    cvText,
   );
 
   const contentJson = plainTextToTipTapJson(content);

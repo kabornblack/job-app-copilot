@@ -368,3 +368,38 @@ export async function deleteSkill(id: string): Promise<void> {
   });
   await parseOrThrow<Skill>(response, "Failed to delete skill");
 }
+
+// ---------------------------------------------------------------------------
+// cv_uploads (1:1, optional — Phase 7 Stage 3 / ADR-0005)
+// ---------------------------------------------------------------------------
+
+export type CvUpload = {
+  userId: string;
+  filePath: string;
+  originalFilename: string | null;
+  extractedText: string;
+  extractionStatus: "ok" | "empty" | "failed" | string;
+  uploadedAt: string;
+  updatedAt: string;
+};
+
+export async function getCvUpload(): Promise<CvUpload | null> {
+  const response = await apiFetch("/profile/cv");
+  const data = await parseOrThrow<CvUpload | null>(response, "Failed to load CV");
+  return data && data.userId ? data : null;
+}
+
+export async function putCvUpload(file: File): Promise<CvUpload> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await apiFetch("/profile/cv", {
+    method: "PUT",
+    body: formData,
+  });
+  return parseOrThrow<CvUpload>(response, "Failed to upload CV");
+}
+
+export async function deleteCvUpload(): Promise<void> {
+  const response = await apiFetch("/profile/cv", { method: "DELETE" });
+  await parseOrThrow<CvUpload>(response, "Failed to delete CV");
+}
